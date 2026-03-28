@@ -11,9 +11,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "notetools",
-	Short: "Local AI CLI for OCR, transcription, and document review",
-	Long:  "notetools uses llama.cpp to run GLM-OCR and Voxtral locally for PDF-to-Markdown conversion, audio transcription, and document review via Claude.",
+	Use:   "nt",
+	Short: "Local AI CLI for OCR, document review, and note merging",
+	Long:  "nt (notetools) uses llama.cpp for PDF-to-Markdown OCR and Claude Code for document review and note merging.",
 }
 
 func init() {

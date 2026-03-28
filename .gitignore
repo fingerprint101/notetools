@@ -1,23 +1,13 @@
 # Build output
-notetools
-notetools-bin
-notetools-linux-*
-notetools-darwin-*
+nt
+nt-bin
+nt-linux-*
+nt-darwin-*
 
 # Go
 *.exe
 *.test
 *.out
-
-# Old Python project
-notetools/
-__pycache__/
-*.pyc
-*.egg-info/
-.venv/
-uv.lock
-pyproject.toml
-scripts/
 
 # Editor / OS
 .DS_Store

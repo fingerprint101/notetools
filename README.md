@@ -1,24 +1,24 @@
-# notetools
+# nt (notetools)
 
-Local AI CLI for OCR, transcription, and document review — powered by [llama.cpp](https://github.com/ggml-org/llama.cpp).
+Local AI CLI for OCR, document review, and note merging — powered by [llama.cpp](https://github.com/ggml-org/llama.cpp) and [Claude Code](https://claude.com/claude-code).
 
-- **`notetools ocr`** — Convert PDFs to Markdown using GLM-OCR
-- **`notetools transcribe`** — Transcribe audio to Markdown using Voxtral
-- **`notetools review`** — Review Markdown for consistency using Claude Code
+- **`nt ocr`** (`o`) — Convert PDFs to Markdown using GLM-OCR
+- **`nt review`** (`r`) — Review Markdown for consistency using Claude Code
+- **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
+- **`nt merge`** (`m`) — Merge snippets from two notes into one using Claude Code
 
 ## Requirements
 
-- Go 1.21+ (to build notetools)
+- Go 1.21+ (to build)
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) built with multimodal support (`llama-mtmd-cli`)
 - A supported GPU: NVIDIA (CUDA), AMD (ROCm), or Apple Silicon (Metal)
-- `claude` CLI (only for the `review` subcommand)
+- `claude` CLI (for `review` and `merge` subcommands)
 
 ### GPU VRAM
 
 | Model | Size (Q8_0) | Purpose |
 |---|---|---|
 | GLM-OCR | ~950 MB + ~460 MB mmproj | PDF to Markdown |
-| Voxtral Mini 4B Realtime | ~4.7 GB | Audio transcription |
 
 ## Installation
 
@@ -76,34 +76,33 @@ If you don't want to copy to `/usr/local/bin`, you can point notetools to the bi
 export NOTETOOLS_LLAMA_BIN=/path/to/llama.cpp/build/bin/llama-mtmd-cli
 ```
 
-### 2. Build notetools
+### 2. Build nt
 
 ```bash
 git clone https://github.com/fingerprint/notetools
 cd notetools
 make build
-sudo cp notetools-bin /usr/local/bin/notetools
+sudo make install   # installs to /usr/local/bin/nt
 ```
 
 ### 3. Download models
 
 ```bash
-notetools models pull
+nt models pull
 ```
 
-This downloads the GGUF models from HuggingFace (~6 GB total):
+This downloads the GGUF models from HuggingFace:
 - `GLM-OCR-Q8_0.gguf` + `mmproj-GLM-OCR-Q8_0.gguf` (~1.4 GB)
-- `Q8_0.gguf` (Voxtral Mini 4B Realtime, ~4.7 GB)
 
 Models are stored in `~/.local/share/notetools/models/` by default.
 
 Check download status:
 
 ```bash
-notetools models list
+nt models list
 ```
 
-### 4. Claude Code (optional, for `review` subcommand)
+### 4. Claude Code (for `review` and `merge` subcommands)
 
 ```bash
 npm install -g @anthropic-ai/claude-code
@@ -112,35 +111,56 @@ claude auth
 
 ## Usage
 
+All commands have short aliases shown in parentheses.
+
 ### OCR a PDF
 
 ```bash
-notetools ocr lecture_notes.pdf
+nt ocr lecture_notes.pdf    # or: nt o lecture_notes.pdf
 # => lecture_notes.md
 ```
-
-### Transcribe audio
-
-```bash
-notetools transcribe lecture_audio.mp3
-# => lecture_audio_transcript.md
-```
-
-Supported formats: `.wav`, `.mp3`, `.m4a`
 
 ### Review a Markdown file
 
 ```bash
-notetools review lecture_notes.md
+nt review lecture_notes.md  # or: nt r lecture_notes.md
 # => lecture_notes_review.md (also printed to stdout)
 ```
+
+### Preview a file with line numbers
+
+```bash
+nt preview notes.md         # or: nt p notes.md
+nt p notes.md:10-30         # lines 10 through 30
+```
+
+### Merge two notes
+
+Use `preview` to find the line ranges you want, then merge them:
+
+```bash
+# Merge specific ranges
+nt m alice_notes.md:10-85 bob_notes.md:30-120
+
+# Merge full files
+nt m alice_notes.md bob_notes.md
+
+# Custom output path
+nt m alice_notes.md:10-85 bob_notes.md:30-120 -o combined.md
+
+# Add instructions to guide the merge
+nt m alice_notes.md:10-85 bob_notes.md:30-120 -i "Focus on the chemistry section"
+# => alice_notes_bob_notes_merged.md (also printed to stdout)
+```
+
+The merge preserves all details from both snippets without summarizing. Contradictions between sources are marked with `<!-- CONFLICT -->` comments.
 
 ### Global flags
 
 ```bash
-notetools --verbose ocr notes.pdf        # Show llama.cpp stderr output
-notetools --no-overwrite ocr notes.pdf   # Skip if output file exists
-notetools --gpu-layers 20 ocr notes.pdf  # Control GPU offloading (-1 = all, default)
+nt --verbose ocr notes.pdf        # Show llama.cpp stderr output
+nt --no-overwrite ocr notes.pdf   # Skip if output file exists
+nt --gpu-layers 20 ocr notes.pdf  # Control GPU offloading (-1 = all, default)
 ```
 
 ## Environment variables

@@ -16,10 +16,11 @@ const ocrPrompt = "Convert this document page to Markdown. " +
 	"Output only Markdown, no commentary."
 
 var ocrCmd = &cobra.Command{
-	Use:   "ocr <pdf>",
-	Short: "Convert a PDF to Markdown using GLM-OCR",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runOCR,
+	Use:     "ocr <pdf>",
+	Aliases: []string{"o"},
+	Short:   "Convert a PDF to Markdown using GLM-OCR",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runOCR,
 }
 
 func init() {
@@ -42,7 +43,7 @@ func runOCR(cmd *cobra.Command, args []string) error {
 	}
 
 	if !llama.GLMOcr.IsReady() {
-		return fmt.Errorf("GLM-OCR model not found; run 'notetools models pull' first")
+		return fmt.Errorf("GLM-OCR model not found; run 'nt models pull' first")
 	}
 
 	fmt.Fprintf(os.Stderr, "Rendering PDF pages...\n")

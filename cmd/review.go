@@ -11,10 +11,11 @@ import (
 )
 
 var reviewCmd = &cobra.Command{
-	Use:   "review <markdown>",
-	Short: "Review a Markdown document for issues using Claude",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runReview,
+	Use:     "review <markdown>",
+	Aliases: []string{"r"},
+	Short:   "Review a Markdown document for issues using Claude",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runReview,
 }
 
 func init() {
