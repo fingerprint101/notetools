@@ -36,16 +36,7 @@ var GLMOcr = Model{
 	},
 }
 
-var Voxtral = Model{
-	Name: "voxtral",
-	Model: ModelFile{
-		Repo:     "andrijdavid/Voxtral-Mini-4B-Realtime-2602-GGUF",
-		Filename: "Q8_0.gguf",
-	},
-	MMProj: nil, // audio encoder is embedded in the model
-}
-
-var AllModels = []Model{GLMOcr, Voxtral}
+var AllModels = []Model{GLMOcr}
 
 // ModelsDir returns the directory where models are stored.
 func ModelsDir() string {

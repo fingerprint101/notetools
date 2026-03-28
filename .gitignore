@@ -1,4 +1,5 @@
 # Build output
+notetools
 notetools-bin
 notetools-linux-*
 notetools-darwin-*
