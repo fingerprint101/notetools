@@ -13,7 +13,7 @@ import (
 var reviewCmd = &cobra.Command{
 	Use:     "review <markdown>",
 	Aliases: []string{"r"},
-	Short:   "Review a Markdown document for issues using Claude",
+	Short:   "Review a Markdown document for issues",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runReview,
 }
@@ -38,8 +38,8 @@ func runReview(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "Reviewing with Claude...\n")
-	result, err := review.RunClaude(string(content))
+	fmt.Fprintf(os.Stderr, "Reviewing...\n")
+	result, err := review.Run(cmd.Context(), string(content))
 	if err != nil {
 		return err
 	}

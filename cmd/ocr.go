@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/llama"
+	"github.com/fingerprint/notetools/internal/ollama"
 	"github.com/fingerprint/notetools/internal/pdf"
 	"github.com/spf13/cobra"
 )
+
+const ocrModel = "glm-ocr"
 
 const ocrPrompt = "Convert this document page to Markdown. " +
 	"Preserve all headings, lists, tables, and code blocks. " +
@@ -18,7 +20,7 @@ const ocrPrompt = "Convert this document page to Markdown. " +
 var ocrCmd = &cobra.Command{
 	Use:     "ocr <pdf>",
 	Aliases: []string{"o"},
-	Short:   "Convert a PDF to Markdown using GLM-OCR",
+	Short:   "Convert a PDF to Markdown using GLM-OCR via ollama",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runOCR,
 }
@@ -42,10 +44,6 @@ func runOCR(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if !llama.GLMOcr.IsReady() {
-		return fmt.Errorf("GLM-OCR model not found; run 'nt models pull' first")
-	}
-
 	fmt.Fprintf(os.Stderr, "Rendering PDF pages...\n")
 	pages, err := pdf.RenderPages(pdfPath, 150)
 	if err != nil {
@@ -57,19 +55,12 @@ func runOCR(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "Processing %d page(s) with GLM-OCR...\n", len(pages))
+	fmt.Fprintf(os.Stderr, "Processing %d page(s) with GLM-OCR via ollama...\n", len(pages))
 	results := make([]string, 0, len(pages))
 
 	for i, pagePath := range pages {
 		fmt.Fprintf(os.Stderr, "  Page %d/%d...\n", i+1, len(pages))
-		out, err := llama.Run(llama.RunOpts{
-			ModelPath:  llama.GLMOcr.Model.LocalPath(),
-			MMProjPath: llama.GLMOcr.MMProjLocalPath(),
-			Prompt:     ocrPrompt,
-			ImagePath:  pagePath,
-			GPULayers:  gpuLayers,
-			Verbose:    verbose,
-		})
+		out, err := ollama.GenerateWithImage(cmd.Context(), ocrModel, ocrPrompt, pagePath)
 		if err != nil {
 			return fmt.Errorf("OCR page %d: %w", i+1, err)
 		}

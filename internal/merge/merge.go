@@ -1,9 +1,13 @@
 package merge
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
+
+	"github.com/fingerprint/notetools/internal/ollama"
 )
+
+const textModel = "gemma4:e4b"
 
 const promptTemplate = `You are a note-merging assistant. You are given two snippets from different
 people's notes on the same topic. Merge them into a single unified Markdown document.
@@ -25,26 +29,13 @@ CRITICAL RULES:
 --- SNIPPET 2 ---
 %s`
 
-// RunClaude sends two snippets to the claude CLI for merging and returns the merged output.
-func RunClaude(snippet1, snippet2, instructions string) (string, error) {
-	if _, err := exec.LookPath("claude"); err != nil {
-		return "", fmt.Errorf("'claude' not found in PATH; install: npm install -g @anthropic-ai/claude-code")
-	}
-
+// Run merges two snippets using the local text model and returns the merged output.
+func Run(ctx context.Context, snippet1, snippet2, instructions string) (string, error) {
 	extra := ""
 	if instructions != "" {
 		extra = fmt.Sprintf("\nAdditional instructions: %s\n", instructions)
 	}
 
 	prompt := fmt.Sprintf(promptTemplate, extra, snippet1, snippet2)
-	cmd := exec.Command("claude", "-p", prompt, "--output-format", "text")
-	out, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("claude exited with code %d: %s", exitErr.ExitCode(), string(exitErr.Stderr))
-		}
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	return string(out), nil
+	return ollama.Generate(ctx, textModel, prompt)
 }

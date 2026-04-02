@@ -1,12 +1,15 @@
 package clean
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
+
+	"github.com/fingerprint/notetools/internal/ollama"
 )
+
+const textModel = "gemma4:e4b"
 
 type Section struct {
 	Title   string `json:"title"`
@@ -51,46 +54,6 @@ var cleanSectionSchema = map[string]any{
 	"required": []string{"cleaned_content"},
 }
 
-func runClaude(prompt string, schema map[string]any) (string, error) {
-	if _, err := exec.LookPath("claude"); err != nil {
-		return "", fmt.Errorf("'claude' not found in PATH; install: npm install -g @anthropic-ai/claude-code")
-	}
-
-	schemaJSON, err := json.Marshal(schema)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal schema: %w", err)
-	}
-
-	cmd := exec.Command("claude", "-p", prompt, "--bare", "--json-schema", string(schemaJSON))
-	cmd.Env = filterEnv(os.Environ())
-	out, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("claude exited with code %d: %s", exitErr.ExitCode(), string(exitErr.Stderr))
-		}
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	output := strings.TrimSpace(string(out))
-	if output == "" {
-		return "", fmt.Errorf("claude returned empty output")
-	}
-	return output, nil
-}
-
-func filterEnv(environ []string) []string {
-	filtered := make([]string, 0, len(environ))
-	for _, e := range environ {
-		key, _, _ := strings.Cut(e, "=")
-		switch key {
-		case "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "VIRTUAL_ENV":
-			continue
-		}
-		filtered = append(filtered, e)
-	}
-	return filtered
-}
-
 // extractJSON attempts to find valid JSON in the response, stripping markdown fences if present.
 func extractJSON(text string) (string, error) {
 	stripped := strings.TrimSpace(text)
@@ -115,11 +78,11 @@ func extractJSON(text string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("claude did not return valid JSON")
+	return "", fmt.Errorf("model did not return valid JSON")
 }
 
-// SectionTranscript splits a transcript into thematic sections via Claude.
-func SectionTranscript(transcript string) ([]Section, error) {
+// SectionTranscript splits a transcript into thematic sections via the local text model.
+func SectionTranscript(ctx context.Context, transcript string) ([]Section, error) {
 	prompt := fmt.Sprintf(`You are organizing an automatic transcript of an Italian university lecture.
 
 Task:
@@ -148,7 +111,7 @@ Transcript:
 TRANSCRIPT>>>
 `, transcript)
 
-	raw, err := runClaude(prompt, sectionSchema)
+	raw, err := ollama.GenerateJSON(ctx, textModel, prompt, sectionSchema)
 	if err != nil {
 		return nil, fmt.Errorf("sectioning failed: %w", err)
 	}
@@ -164,7 +127,7 @@ TRANSCRIPT>>>
 	}
 
 	if len(resp.Sections) == 0 {
-		return nil, fmt.Errorf("claude returned an empty section list")
+		return nil, fmt.Errorf("model returned an empty section list")
 	}
 
 	for i := range resp.Sections {
@@ -175,9 +138,9 @@ TRANSCRIPT>>>
 	return resp.Sections, nil
 }
 
-// CleanSection sends a single section to Claude for cleanup and returns the cleaned text.
-func CleanSection(title, content string) (string, error) {
-	prompt := fmt.Sprintf(`You are cleaning a single section from an automatic transcript of an Italian university lecture.
+// CleanSection sends a single section to the local text model for cleanup and returns the cleaned text.
+func CleanSection(ctx context.Context, title, content string) (string, error) {
+	prompt := fmt.Sprintf(`You are cleaning a single section from an automatic transcript of a university lecture.
 
 Task:
 - Work only on the provided section.
@@ -203,7 +166,7 @@ Section text:
 SECTION>>>
 `, title, content)
 
-	raw, err := runClaude(prompt, cleanSectionSchema)
+	raw, err := ollama.GenerateJSON(ctx, textModel, prompt, cleanSectionSchema)
 	if err != nil {
 		return "", fmt.Errorf("cleaning section %q failed: %w", title, err)
 	}
@@ -220,7 +183,7 @@ SECTION>>>
 
 	cleaned := strings.TrimSpace(resp.CleanedContent)
 	if cleaned == "" {
-		return "", fmt.Errorf("claude returned empty cleaned content for section %q", title)
+		return "", fmt.Errorf("model returned empty cleaned content for section %q", title)
 	}
 
 	return cleaned, nil

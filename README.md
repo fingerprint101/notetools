@@ -1,79 +1,27 @@
 # nt (notetools)
 
-Local AI CLI for OCR, document review, and note merging — powered by [llama.cpp](https://github.com/ggml-org/llama.cpp) and [Claude Code](https://claude.com/claude-code).
+Local AI CLI for OCR, document review, and note merging — powered by [ollama](https://ollama.com).
 
 - **`nt ocr`** (`o`) — Convert PDFs to Markdown using GLM-OCR
-- **`nt review`** (`r`) — Review Markdown for consistency using Claude Code
+- **`nt review`** (`r`) — Review Markdown for consistency
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
-- **`nt merge`** (`m`) — Merge snippets from two notes into one using Claude Code
+- **`nt merge`** (`m`) — Merge snippets from two notes into one
+- **`nt clean`** (`c`) — Section and clean a raw transcript
 
 ## Requirements
 
 - Go 1.21+ (to build)
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) built with multimodal support (`llama-mtmd-cli`)
-- A supported GPU: NVIDIA (CUDA), AMD (ROCm), or Apple Silicon (Metal)
-- `claude` CLI (for `review` and `merge` subcommands)
-
-### GPU VRAM
-
-| Model | Size (Q8_0) | Purpose |
-|---|---|---|
-| GLM-OCR | ~950 MB + ~460 MB mmproj | PDF to Markdown |
+- [ollama](https://ollama.com) 0.19+ with `glm-ocr` and `gemma4:e4b` models pulled
 
 ## Installation
 
-### 1. Install llama.cpp
+### 1. Install ollama
 
-Clone and build llama.cpp with GPU acceleration for your platform.
-
-#### AMD GPU (ROCm)
+Download and install ollama from [ollama.com](https://ollama.com), then pull the required models:
 
 ```bash
-# Install build dependencies (Fedora)
-sudo dnf install cmake gcc-c++ hipcc rocblas-devel hipblas-devel
-
-# On Ubuntu/Debian:
-# sudo apt install cmake g++ hipcc librocblas-dev libhipblas-dev
-
-git clone https://github.com/ggml-org/llama.cpp
-cd llama.cpp
-cmake -B build -DGGML_HIP=ON
-cmake --build build --config Release -j$(nproc)
-sudo cp build/bin/llama-mtmd-cli /usr/local/bin/
-```
-
-#### NVIDIA GPU (CUDA)
-
-```bash
-# Requires CUDA toolkit installed
-git clone https://github.com/ggml-org/llama.cpp
-cd llama.cpp
-cmake -B build -DGGML_CUDA=ON
-cmake --build build --config Release -j$(nproc)
-sudo cp build/bin/llama-mtmd-cli /usr/local/bin/
-```
-
-#### Apple Silicon (Metal)
-
-```bash
-# Metal is enabled by default on macOS
-git clone https://github.com/ggml-org/llama.cpp
-cd llama.cpp
-cmake -B build
-cmake --build build --config Release -j$(sysctl -n hw.ncpu)
-sudo cp build/bin/llama-mtmd-cli /usr/local/bin/
-```
-
-Verify the installation:
-
-```bash
-llama-mtmd-cli --help
-```
-
-If you don't want to copy to `/usr/local/bin`, you can point notetools to the binary directly:
-
-```bash
-export NOTETOOLS_LLAMA_BIN=/path/to/llama.cpp/build/bin/llama-mtmd-cli
+ollama pull glm-ocr
+ollama pull gemma4:e4b
 ```
 
 ### 2. Build nt
@@ -83,30 +31,6 @@ git clone https://github.com/fingerprint/notetools
 cd notetools
 make build
 sudo make install   # installs to /usr/local/bin/nt
-```
-
-### 3. Download models
-
-```bash
-nt models pull
-```
-
-This downloads the GGUF models from HuggingFace:
-- `GLM-OCR-Q8_0.gguf` + `mmproj-GLM-OCR-Q8_0.gguf` (~1.4 GB)
-
-Models are stored in `~/.local/share/notetools/models/` by default.
-
-Check download status:
-
-```bash
-nt models list
-```
-
-### 4. Claude Code (for `review` and `merge` subcommands)
-
-```bash
-npm install -g @anthropic-ai/claude-code
-claude auth
 ```
 
 ## Usage
@@ -155,18 +79,24 @@ nt m alice_notes.md:10-85 bob_notes.md:30-120 -i "Focus on the chemistry section
 
 The merge preserves all details from both snippets without summarizing. Contradictions between sources are marked with `<!-- CONFLICT -->` comments.
 
+### Clean a transcript
+
+```bash
+nt clean lecture_transcript.txt    # or: nt c lecture_transcript.txt
+# => lecture_transcript_cleaned.md
+```
+
+Splits the transcript into thematic sections and cleans each one individually.
+
 ### Global flags
 
 ```bash
-nt --verbose ocr notes.pdf        # Show llama.cpp stderr output
-nt --no-overwrite ocr notes.pdf   # Skip if output file exists
-nt --gpu-layers 20 ocr notes.pdf  # Control GPU offloading (-1 = all, default)
+nt --no-overwrite ocr notes.pdf              # Skip if output file exists
+nt --ollama-host http://remote:11434 ocr notes.pdf  # Use a remote ollama instance
 ```
 
 ## Environment variables
 
 | Variable | Description |
 |---|---|
-| `NOTETOOLS_LLAMA_BIN` | Path to `llama-mtmd-cli` binary |
-| `NOTETOOLS_DATA_DIR` | Override model storage directory |
-| `XDG_DATA_HOME` | Respected for model storage (default: `~/.local/share`) |
+| `OLLAMA_HOST` | ollama base URL (default: `http://localhost:11434`) |

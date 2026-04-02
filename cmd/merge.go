@@ -24,7 +24,7 @@ var (
 var mergeCmd = &cobra.Command{
 	Use:     "merge <file1>[:<start>-<end>] <file2>[:<start>-<end>]",
 	Aliases: []string{"m"},
-	Short:   "Merge two note snippets using Claude",
+	Short:   "Merge two note snippets",
 	Long:    "Merge portions of two Markdown notes into a single document. All details from both snippets are preserved. Use line ranges (e.g. file.md:10-50) to select specific sections.",
 	Args:    cobra.ExactArgs(2),
 	RunE:    runMerge,
@@ -66,8 +66,8 @@ func runMerge(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		fmt.Fprintf(os.Stderr, "Merging with Claude...\n")
-		result, err := merge.RunClaude(snippet1, snippet2, mergeInstructions)
+		fmt.Fprintf(os.Stderr, "Merging...\n")
+		result, err := merge.Run(cmd.Context(), snippet1, snippet2, mergeInstructions)
 		if err != nil {
 			return err
 		}
@@ -80,8 +80,8 @@ func runMerge(cmd *cobra.Command, args []string) error {
 	}
 
 	// In-place mode: replace the line range in path2 after confirmation.
-	fmt.Fprintf(os.Stderr, "Merging with Claude...\n")
-	result, err := merge.RunClaude(snippet1, snippet2, mergeInstructions)
+	fmt.Fprintf(os.Stderr, "Merging...\n")
+	result, err := merge.Run(cmd.Context(), snippet1, snippet2, mergeInstructions)
 	if err != nil {
 		return err
 	}

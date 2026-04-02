@@ -1,9 +1,13 @@
 package review
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
+
+	"github.com/fingerprint/notetools/internal/ollama"
 )
+
+const textModel = "gemma4:e4b"
 
 const promptTemplate = `You are a study assistant reviewing AI-generated notes or transcripts.
 Review the following Markdown document for:
@@ -22,21 +26,8 @@ Document to review:
 ---
 %s`
 
-// RunClaude sends a document to the claude CLI for review and returns the output.
-func RunClaude(content string) (string, error) {
-	if _, err := exec.LookPath("claude"); err != nil {
-		return "", fmt.Errorf("'claude' not found in PATH; install: npm install -g @anthropic-ai/claude-code")
-	}
-
+// Run sends a document to the local text model for review and returns the output.
+func Run(ctx context.Context, content string) (string, error) {
 	prompt := fmt.Sprintf(promptTemplate, content)
-	cmd := exec.Command("claude", "-p", prompt, "--output-format", "text")
-	out, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("claude exited with code %d: %s", exitErr.ExitCode(), string(exitErr.Stderr))
-		}
-		return "", fmt.Errorf("claude failed: %w", err)
-	}
-
-	return string(out), nil
+	return ollama.Generate(ctx, textModel, prompt)
 }

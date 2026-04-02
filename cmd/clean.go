@@ -15,9 +15,9 @@ var cleanOutput string
 var cleanCmd = &cobra.Command{
 	Use:     "clean <transcript>",
 	Aliases: []string{"c"},
-	Short:   "Clean a raw transcript: section it and rewrite each section using Claude",
+	Short:   "Clean a raw transcript: section it and rewrite each section",
 	Long: `Takes a raw transcript file (plain text or Markdown), splits it into
-thematic sections using Claude, then cleans each section individually
+thematic sections, then cleans each section individually
 to produce a coherent, readable Markdown document.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClean,
@@ -55,7 +55,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 
 	// Step 1: section the transcript.
 	fmt.Fprintf(os.Stderr, "Splitting transcript into sections...\n")
-	sections, err := clean.SectionTranscript(transcript)
+	sections, err := clean.SectionTranscript(cmd.Context(), transcript)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 	cleaned := make([]clean.Section, 0, len(sections))
 	for i, s := range sections {
 		fmt.Fprintf(os.Stderr, "Cleaning section %d/%d: %s\n", i+1, len(sections), s.Title)
-		text, err := clean.CleanSection(s.Title, s.Content)
+		text, err := clean.CleanSection(cmd.Context(), s.Title, s.Content)
 		if err != nil {
 			return err
 		}
@@ -73,7 +73,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: render and write.
-	docTitle := stem + " - trascrizione ripulita per argomenti"
+	docTitle := stem + " - cleaned transcript per section"
 	result := clean.RenderMarkdown(docTitle, cleaned)
 
 	if err := os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
