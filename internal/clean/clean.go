@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/ollama"
+	"github.com/fingerprint/notetools/internal/llm"
 )
-
-const textModel = "gemma4:e4b"
 
 type Section struct {
 	Title   string `json:"title"`
@@ -54,11 +52,9 @@ var cleanSectionSchema = map[string]any{
 	"required": []string{"cleaned_content"},
 }
 
-// extractJSON attempts to find valid JSON in the response, stripping markdown fences if present.
 func extractJSON(text string) (string, error) {
 	stripped := strings.TrimSpace(text)
 
-	// Strip markdown code fences.
 	if lines := strings.Split(stripped, "\n"); len(lines) >= 3 &&
 		strings.HasPrefix(lines[0], "```") && strings.HasPrefix(lines[len(lines)-1], "```") {
 		stripped = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
@@ -68,7 +64,6 @@ func extractJSON(text string) (string, error) {
 		return stripped, nil
 	}
 
-	// Try extracting the outermost braces.
 	start := strings.Index(stripped, "{")
 	end := strings.LastIndex(stripped, "}")
 	if start != -1 && end > start {
@@ -81,8 +76,7 @@ func extractJSON(text string) (string, error) {
 	return "", fmt.Errorf("model did not return valid JSON")
 }
 
-// SectionTranscript splits a transcript into thematic sections via the local text model.
-func SectionTranscript(ctx context.Context, transcript string) ([]Section, error) {
+func SectionTranscript(ctx context.Context, p llm.Provider, model, transcript string) ([]Section, error) {
 	prompt := fmt.Sprintf(`You are organizing an automatic transcript of an Italian university lecture.
 
 Task:
@@ -111,7 +105,7 @@ Transcript:
 TRANSCRIPT>>>
 `, transcript)
 
-	raw, err := ollama.GenerateJSON(ctx, textModel, prompt, sectionSchema)
+	raw, err := p.GenerateJSON(ctx, model, prompt, sectionSchema)
 	if err != nil {
 		return nil, fmt.Errorf("sectioning failed: %w", err)
 	}
@@ -138,8 +132,7 @@ TRANSCRIPT>>>
 	return resp.Sections, nil
 }
 
-// CleanSection sends a single section to the local text model for cleanup and returns the cleaned text.
-func CleanSection(ctx context.Context, title, content string) (string, error) {
+func CleanSection(ctx context.Context, p llm.Provider, model, title, content string) (string, error) {
 	prompt := fmt.Sprintf(`You are cleaning a single section from an automatic transcript of a university lecture.
 
 Task:
@@ -166,7 +159,7 @@ Section text:
 SECTION>>>
 `, title, content)
 
-	raw, err := ollama.GenerateJSON(ctx, textModel, prompt, cleanSectionSchema)
+	raw, err := p.GenerateJSON(ctx, model, prompt, cleanSectionSchema)
 	if err != nil {
 		return "", fmt.Errorf("cleaning section %q failed: %w", title, err)
 	}
@@ -189,7 +182,6 @@ SECTION>>>
 	return cleaned, nil
 }
 
-// RenderMarkdown assembles cleaned sections into a final Markdown document.
 func RenderMarkdown(docTitle string, sections []Section) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", docTitle)

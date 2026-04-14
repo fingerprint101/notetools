@@ -53,26 +53,25 @@ func runClean(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Step 1: section the transcript.
+	p, model := providerFor("clean")
+
 	fmt.Fprintf(os.Stderr, "Splitting transcript into sections...\n")
-	sections, err := clean.SectionTranscript(cmd.Context(), transcript)
+	sections, err := clean.SectionTranscript(cmd.Context(), p, model, transcript)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Got %d sections.\n", len(sections))
 
-	// Step 2: clean each section.
 	cleaned := make([]clean.Section, 0, len(sections))
 	for i, s := range sections {
 		fmt.Fprintf(os.Stderr, "Cleaning section %d/%d: %s\n", i+1, len(sections), s.Title)
-		text, err := clean.CleanSection(cmd.Context(), s.Title, s.Content)
+		text, err := clean.CleanSection(cmd.Context(), p, model, s.Title, s.Content)
 		if err != nil {
 			return err
 		}
 		cleaned = append(cleaned, clean.Section{Title: s.Title, Content: text})
 	}
 
-	// Step 3: render and write.
 	docTitle := stem + " - cleaned transcript per section"
 	result := clean.RenderMarkdown(docTitle, cleaned)
 

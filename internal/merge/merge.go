@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fingerprint/notetools/internal/ollama"
+	"github.com/fingerprint/notetools/internal/llm"
 )
-
-const textModel = "gemma4:e4b"
 
 const promptTemplate = `You are a note-merging assistant. You are given two snippets from different
 people's notes on the same topic. Merge them into a single unified Markdown document.
@@ -29,13 +27,12 @@ CRITICAL RULES:
 --- SNIPPET 2 ---
 %s`
 
-// Run merges two snippets using the local text model and returns the merged output.
-func Run(ctx context.Context, snippet1, snippet2, instructions string) (string, error) {
+func Run(ctx context.Context, p llm.Provider, model, snippet1, snippet2, instructions string) (string, error) {
 	extra := ""
 	if instructions != "" {
 		extra = fmt.Sprintf("\nAdditional instructions: %s\n", instructions)
 	}
 
 	prompt := fmt.Sprintf(promptTemplate, extra, snippet1, snippet2)
-	return ollama.Generate(ctx, textModel, prompt)
+	return p.Generate(ctx, model, prompt)
 }

@@ -6,12 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/ollama"
 	"github.com/fingerprint/notetools/internal/pdf"
 	"github.com/spf13/cobra"
 )
-
-const ocrModel = "glm-ocr"
 
 const ocrPrompt = "Convert this document page to Markdown. " +
 	"Preserve all headings, lists, tables, and code blocks. " +
@@ -20,7 +17,7 @@ const ocrPrompt = "Convert this document page to Markdown. " +
 var ocrCmd = &cobra.Command{
 	Use:     "ocr <pdf>",
 	Aliases: []string{"o"},
-	Short:   "Convert a PDF to Markdown using GLM-OCR via ollama",
+	Short:   "Convert a PDF to Markdown using an AI model",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runOCR,
 }
@@ -55,12 +52,13 @@ func runOCR(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "Processing %d page(s) with GLM-OCR via ollama...\n", len(pages))
+	p, model := providerFor("ocr")
+	fmt.Fprintf(os.Stderr, "Processing %d page(s) with %s (%s)...\n", len(pages), p, model)
 	results := make([]string, 0, len(pages))
 
 	for i, pagePath := range pages {
 		fmt.Fprintf(os.Stderr, "  Page %d/%d...\n", i+1, len(pages))
-		out, err := ollama.GenerateWithImage(cmd.Context(), ocrModel, ocrPrompt, pagePath)
+		out, err := p.GenerateWithImage(cmd.Context(), model, ocrPrompt, pagePath)
 		if err != nil {
 			return fmt.Errorf("OCR page %d: %w", i+1, err)
 		}

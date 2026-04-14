@@ -38,8 +38,9 @@ func runReview(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "Reviewing...\n")
-	result, err := review.Run(cmd.Context(), string(content))
+	p, model := providerFor("review")
+	fmt.Fprintf(os.Stderr, "Reviewing with %s (%s)...\n", p, model)
+	result, err := review.Run(cmd.Context(), p, model, string(content))
 	if err != nil {
 		return err
 	}

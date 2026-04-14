@@ -55,6 +55,8 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	p, model := providerFor("merge")
+
 	inPlace := !cmd.Flags().Changed("output")
 
 	if !inPlace {
@@ -66,8 +68,8 @@ func runMerge(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		fmt.Fprintf(os.Stderr, "Merging...\n")
-		result, err := merge.Run(cmd.Context(), snippet1, snippet2, mergeInstructions)
+		fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p, model)
+		result, err := merge.Run(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
 		if err != nil {
 			return err
 		}
@@ -79,14 +81,12 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// In-place mode: replace the line range in path2 after confirmation.
-	fmt.Fprintf(os.Stderr, "Merging...\n")
-	result, err := merge.Run(cmd.Context(), snippet1, snippet2, mergeInstructions)
+	fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p, model)
+	result, err := merge.Run(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
 	if err != nil {
 		return err
 	}
 
-	// Show diff.
 	rangeLabel := rangeDesc(path2, start2, end2)
 	fmt.Printf("--- %s\n+++ merged\n", rangeLabel)
 	for _, line := range strings.Split(snippet2, "\n") {
@@ -96,7 +96,6 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s+ %s%s\n", ansiGreen, line, ansiReset)
 	}
 
-	// Prompt.
 	fmt.Print("\nAccept changes? [y/N]: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()

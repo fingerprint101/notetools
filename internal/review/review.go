@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fingerprint/notetools/internal/ollama"
+	"github.com/fingerprint/notetools/internal/llm"
 )
-
-const textModel = "gemma4:e4b"
 
 const promptTemplate = `You are a study assistant reviewing AI-generated notes or transcripts.
 Review the following Markdown document for:
@@ -26,8 +24,7 @@ Document to review:
 ---
 %s`
 
-// Run sends a document to the local text model for review and returns the output.
-func Run(ctx context.Context, content string) (string, error) {
+func Run(ctx context.Context, p llm.Provider, model, content string) (string, error) {
 	prompt := fmt.Sprintf(promptTemplate, content)
-	return ollama.Generate(ctx, textModel, prompt)
+	return p.Generate(ctx, model, prompt)
 }
