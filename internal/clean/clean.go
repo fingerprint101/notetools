@@ -52,30 +52,6 @@ var cleanSectionSchema = map[string]any{
 	"required": []string{"cleaned_content"},
 }
 
-func extractJSON(text string) (string, error) {
-	stripped := strings.TrimSpace(text)
-
-	if lines := strings.Split(stripped, "\n"); len(lines) >= 3 &&
-		strings.HasPrefix(lines[0], "```") && strings.HasPrefix(lines[len(lines)-1], "```") {
-		stripped = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
-	}
-
-	if json.Valid([]byte(stripped)) {
-		return stripped, nil
-	}
-
-	start := strings.Index(stripped, "{")
-	end := strings.LastIndex(stripped, "}")
-	if start != -1 && end > start {
-		candidate := stripped[start : end+1]
-		if json.Valid([]byte(candidate)) {
-			return candidate, nil
-		}
-	}
-
-	return "", fmt.Errorf("model did not return valid JSON")
-}
-
 func SectionTranscript(ctx context.Context, p llm.Provider, model, transcript string) ([]Section, error) {
 	prompt := fmt.Sprintf(`You are organizing an automatic transcript of an Italian university lecture.
 
@@ -110,13 +86,8 @@ TRANSCRIPT>>>
 		return nil, fmt.Errorf("sectioning failed: %w", err)
 	}
 
-	jsonText, err := extractJSON(raw)
-	if err != nil {
-		return nil, err
-	}
-
 	var resp sectionsResponse
-	if err := json.Unmarshal([]byte(jsonText), &resp); err != nil {
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		return nil, fmt.Errorf("failed to parse sections JSON: %w", err)
 	}
 
@@ -164,13 +135,8 @@ SECTION>>>
 		return "", fmt.Errorf("cleaning section %q failed: %w", title, err)
 	}
 
-	jsonText, err := extractJSON(raw)
-	if err != nil {
-		return "", err
-	}
-
 	var resp cleanedResponse
-	if err := json.Unmarshal([]byte(jsonText), &resp); err != nil {
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		return "", fmt.Errorf("failed to parse cleaned section JSON: %w", err)
 	}
 

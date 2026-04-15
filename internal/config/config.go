@@ -19,10 +19,9 @@ type Config struct {
 func Defaults() Config {
 	return Config{
 		Commands: map[string]CommandConfig{
-			"ocr":    {Provider: "local", Model: "glm-ocr"},
-			"review": {Provider: "local", Model: "gemma4:e4b"},
-			"clean":  {Provider: "local", Model: "gemma4:e4b"},
-			"merge":  {Provider: "local", Model: "gemma4:e4b"},
+			"clean":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+			"merge":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+			"explain": {Provider: "opencode", Model: "opencode-go/glm-5.1"},
 		},
 	}
 }
@@ -55,7 +54,6 @@ func Load() (Config, error) {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 
-	// Fill in any missing defaults.
 	defaultCfg := Defaults()
 	for name, def := range defaultCfg.Commands {
 		if _, ok := cfg.Commands[name]; !ok {
@@ -96,5 +94,5 @@ func GetCommandConfig(cfg Config, cmdName string) CommandConfig {
 	if def, ok := defaultCfg.Commands[cmdName]; ok {
 		return def
 	}
-	return CommandConfig{Provider: "local", Model: ""}
+	return CommandConfig{Provider: "opencode", Model: ""}
 }

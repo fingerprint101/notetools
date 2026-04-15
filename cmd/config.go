@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
-	"strings"
 
 	"github.com/fingerprint/notetools/internal/config"
 	"github.com/spf13/cobra"
@@ -25,21 +23,25 @@ var configShowCmd = &cobra.Command{
 }
 
 var configSetCmd = &cobra.Command{
-	Use:   "set <command> <provider> [model]",
+	Use:   "set <command> <provider> <model>",
 	Short: "Set provider and model for a command",
 	Long: `Set the inference provider and model for a specific command.
 
 Providers:
-  local    - Use local ollama models (default)
-  opencode - Use the opencode CLI (must be installed)
+  opencode - opencode CLI
+  claude   - Claude Code CLI
+  codex    - Codex CLI
 
 Examples:
-  nt config set ocr local glm-ocr
   nt config set clean opencode opencode-go/glm-5.1
-  nt config set review local              (uses default model)`,
-	Args: cobra.MinimumNArgs(2),
+  nt config set merge claude sonnet
+  nt config set explain codex gpt-5-codex`,
+	Args: cobra.ExactArgs(3),
 	RunE: runConfigSet,
 }
+
+var validCmds = map[string]bool{"clean": true, "merge": true, "explain": true}
+var validProviders = map[string]bool{"opencode": true, "claude": true, "codex": true}
 
 func init() {
 	configCmd.AddCommand(configShowCmd)
@@ -68,16 +70,13 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 }
 
 func runConfigSet(cmd *cobra.Command, args []string) error {
-	cmdName := args[0]
-	provider := args[1]
+	cmdName, provider, model := args[0], args[1], args[2]
 
-	if provider != "local" && provider != "opencode" {
-		return fmt.Errorf("unknown provider %q: must be \"local\" or \"opencode\"", provider)
-	}
-
-	validCmds := map[string]bool{"ocr": true, "review": true, "clean": true, "merge": true}
 	if !validCmds[cmdName] {
-		return fmt.Errorf("unknown command %q: must be one of ocr, review, clean, merge", cmdName)
+		return fmt.Errorf("unknown command %q: must be one of clean, merge, explain", cmdName)
+	}
+	if !validProviders[provider] {
+		return fmt.Errorf("unknown provider %q: must be one of opencode, claude, codex", provider)
 	}
 
 	cfg, err := config.Load()
@@ -85,29 +84,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	var model string
-	switch {
-	case len(args) >= 3:
-		model = args[2]
-	case provider == "local":
-		defaults := config.Defaults()
-		if def, ok := defaults.Commands[cmdName]; ok {
-			model = def.Model
-		}
-	default:
-		return fmt.Errorf("model is required when provider is \"opencode\"; usage: nt config set %s opencode <model>", cmdName)
-	}
-
-	if provider == "opencode" {
-		if err := validateOpenCodeModel(model); err != nil {
-			return err
-		}
-	}
-
-	cc := config.CommandConfig{
-		Provider: provider,
-		Model:    model,
-	}
+	cc := config.CommandConfig{Provider: provider, Model: model}
 	if cfg.Commands == nil {
 		cfg.Commands = map[string]config.CommandConfig{}
 	}
@@ -120,19 +97,4 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	b, _ := json.MarshalIndent(cc, "", "  ")
 	fmt.Fprintf(os.Stderr, "Updated %s: %s\n", cmdName, string(b))
 	return nil
-}
-
-func validateOpenCodeModel(model string) error {
-	out, err := exec.Command("opencode", "models").Output()
-	if err != nil {
-		return fmt.Errorf("failed to list opencode models (is opencode installed?): %w", err)
-	}
-	available := strings.Split(strings.TrimSpace(string(out)), "\n")
-	for _, m := range available {
-		m = strings.TrimSpace(m)
-		if m == model {
-			return nil
-		}
-	}
-	return fmt.Errorf("model %q not found in opencode models; available models:\n  %s", model, strings.Join(available, "\n  "))
 }

@@ -1,9 +1,8 @@
 # nt (notetools)
 
-Local AI CLI for OCR, document review, and note merging — powered by [ollama](https://ollama.com).
+AI CLI for document explanation, transcript cleaning, and note merging. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), or [Codex](https://github.com/openai/codex).
 
-- **`nt ocr`** (`o`) — Convert PDFs to Markdown using GLM-OCR
-- **`nt review`** (`r`) — Review Markdown for consistency
+- **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
 - **`nt merge`** (`m`) — Merge snippets from two notes into one
 - **`nt clean`** (`c`) — Section and clean a raw transcript
@@ -11,20 +10,9 @@ Local AI CLI for OCR, document review, and note merging — powered by [ollama](
 ## Requirements
 
 - Go 1.21+ (to build)
-- [ollama](https://ollama.com) 0.19+ with `glm-ocr` and `gemma4:e4b` models pulled
+- At least one of: `opencode`, `claude` (Claude Code), or `codex` installed and authenticated
 
 ## Installation
-
-### 1. Install ollama
-
-Download and install ollama from [ollama.com](https://ollama.com), then pull the required models:
-
-```bash
-ollama pull glm-ocr
-ollama pull gemma4:e4b
-```
-
-### 2. Build nt
 
 ```bash
 git clone https://github.com/fingerprint/notetools
@@ -33,22 +21,34 @@ make build
 sudo make install   # installs to /usr/local/bin/nt
 ```
 
-## Usage
+## Configuration
 
-All commands have short aliases shown in parentheses.
-
-### OCR a PDF
+Each command has a configurable provider/model. Defaults use `opencode-go/glm-5.1` via opencode.
 
 ```bash
-nt ocr lecture_notes.pdf    # or: nt o lecture_notes.pdf
-# => lecture_notes.md
+nt config show
+nt config set clean opencode opencode-go/glm-5.1
+nt config set merge claude sonnet
+nt config set explain codex gpt-5-codex
 ```
 
-### Review a Markdown file
+Supported providers:
+
+| Provider   | Invoked as               | Notes |
+|------------|--------------------------|-------|
+| `opencode` | `opencode run ...`       | Multi-provider router |
+| `claude`   | `claude -p ...`          | Claude Code CLI |
+| `codex`    | `codex exec ...`         | Codex CLI |
+
+For `claude` and `codex`, image inputs are passed as file paths in the prompt — the agent reads them itself.
+
+## Usage
+
+### Explain a PDF
 
 ```bash
-nt review lecture_notes.md  # or: nt r lecture_notes.md
-# => lecture_notes_review.md (also printed to stdout)
+nt explain lecture.pdf      # or: nt e lecture.pdf
+# => lecture_explained.md
 ```
 
 ### Preview a file with line numbers
@@ -60,24 +60,16 @@ nt p notes.md:10-30         # lines 10 through 30
 
 ### Merge two notes
 
-Use `preview` to find the line ranges you want, then merge them:
+Use `preview` to find line ranges, then merge:
 
 ```bash
-# Merge specific ranges
 nt m alice_notes.md:10-85 bob_notes.md:30-120
-
-# Merge full files
-nt m alice_notes.md bob_notes.md
-
-# Custom output path
+nt m alice_notes.md bob_notes.md                       # full files
 nt m alice_notes.md:10-85 bob_notes.md:30-120 -o combined.md
-
-# Add instructions to guide the merge
 nt m alice_notes.md:10-85 bob_notes.md:30-120 -i "Focus on the chemistry section"
-# => alice_notes_bob_notes_merged.md (also printed to stdout)
 ```
 
-The merge preserves all details from both snippets without summarizing. Contradictions between sources are marked with `<!-- CONFLICT -->` comments.
+Merge preserves all details from both snippets without summarizing. Contradictions are marked with `<!-- CONFLICT -->` comments.
 
 ### Clean a transcript
 
@@ -91,12 +83,5 @@ Splits the transcript into thematic sections and cleans each one individually.
 ### Global flags
 
 ```bash
-nt --no-overwrite ocr notes.pdf              # Skip if output file exists
-nt --ollama-host http://remote:11434 ocr notes.pdf  # Use a remote ollama instance
+nt --no-overwrite explain notes.pdf   # skip if output file exists
 ```
-
-## Environment variables
-
-| Variable | Description |
-|---|---|
-| `OLLAMA_HOST` | ollama base URL (default: `http://localhost:11434`) |

@@ -26,12 +26,15 @@ type event struct {
 
 func runOpenCode(ctx context.Context, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, "opencode", args...)
-	cmd.Stderr = nil
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", fmt.Errorf("opencode run: %w\n%s", err, msg)
+		}
 		return "", fmt.Errorf("opencode run: %w", err)
 	}
 
@@ -60,9 +63,17 @@ func (c *Client) Generate(ctx context.Context, model, prompt string) (string, er
 }
 
 func (c *Client) GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error) {
-	return runOpenCode(ctx, []string{
-		"run", "-m", model, "--format", "json", "-f", imagePath, prompt,
-	})
+	return c.GenerateWithImages(ctx, model, prompt, []string{imagePath})
+}
+
+func (c *Client) GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error) {
+	args := []string{
+		"run", "-m", model, "--format", "json", prompt,
+	}
+	for _, p := range imagePaths {
+		args = append(args, "-f", p)
+	}
+	return runOpenCode(ctx, args)
 }
 
 func (c *Client) GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error) {

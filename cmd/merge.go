@@ -59,32 +59,26 @@ func runMerge(cmd *cobra.Command, args []string) error {
 
 	inPlace := !cmd.Flags().Changed("output")
 
-	if !inPlace {
-		outputPath := mergeOutput
-		if noOverwrite {
-			if _, err := os.Stat(outputPath); err == nil {
-				fmt.Fprintf(os.Stderr, "Skipping: output already exists: %s\n", outputPath)
-				return nil
-			}
+	if !inPlace && noOverwrite {
+		if _, err := os.Stat(mergeOutput); err == nil {
+			fmt.Fprintf(os.Stderr, "Skipping: output already exists: %s\n", mergeOutput)
+			return nil
 		}
-
-		fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p, model)
-		result, err := merge.Run(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
-			return err
-		}
-		fmt.Print(result)
-		fmt.Fprintf(os.Stderr, "Written: %s\n", outputPath)
-		return nil
 	}
 
 	fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p, model)
 	result, err := merge.Run(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
 	if err != nil {
 		return err
+	}
+
+	if !inPlace {
+		if err := os.WriteFile(mergeOutput, []byte(result), 0o644); err != nil {
+			return err
+		}
+		fmt.Print(result)
+		fmt.Fprintf(os.Stderr, "Written: %s\n", mergeOutput)
+		return nil
 	}
 
 	rangeLabel := rangeDesc(path2, start2, end2)
