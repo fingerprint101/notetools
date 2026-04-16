@@ -45,6 +45,22 @@ func promptWithImages(prompt string, imagePaths []string) string {
 	return b.String()
 }
 
+func runWithImages(ctx context.Context, model, prompt string) (string, error) {
+	cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--model", model, "--allowedTools", "Read")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", fmt.Errorf("claude run: %w\n%s", err, msg)
+		}
+		return "", fmt.Errorf("claude run: %w", err)
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 func (c *Client) Generate(ctx context.Context, model, prompt string) (string, error) {
 	return run(ctx, model, prompt)
 }
@@ -54,7 +70,7 @@ func (c *Client) GenerateWithImage(ctx context.Context, model, prompt, imagePath
 }
 
 func (c *Client) GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error) {
-	return run(ctx, model, promptWithImages(prompt, imagePaths))
+	return runWithImages(ctx, model, promptWithImages(prompt, imagePaths))
 }
 
 func (c *Client) GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error) {

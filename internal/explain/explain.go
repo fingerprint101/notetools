@@ -50,11 +50,11 @@ func IdentifySections(ctx context.Context, p llm.Provider, model, pdfPath string
 	prompt := fmt.Sprintf(`You are analyzing a PDF document. Here is the document: %s
 
 Task:
-- Identify all coherent thematic sections in the document.
+- Identify the major thematic sections in the document.
 - For each section, provide its title, the starting page number, and the ending page number.
 - Pages are 1-indexed.
 - Sections must be contiguous, non-overlapping, and cover the entire document.
-- Prefer specific, well-defined sections over broad ones.
+- Aim for broad, high-level sections: each section should cover multiple related pages. A 20-30 page document should have roughly 4-6 sections, not one per topic or per slide.
 - Give each section a concise, descriptive title.
 - Reply only with valid JSON matching the required schema.`, pdfPath)
 
@@ -83,29 +83,33 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 	prompt := fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
-Your goal is to produce an EXHAUSTIVE breakdown that can be used as raw material for
-hand-written notes. Err on the side of including too much rather than too little — the
-reader will trim later.
+Your goal is to produce dense, exhaustive notes written in flowing prose. The notes should
+read like a well-written textbook explanation — not like a structured outline or a list of
+bullet points. A reader should be able to understand the material deeply from your notes alone.
 
-For every distinct topic, concept, definition, example, formula, diagram, or claim in
-the section:
-- Name it with a descriptive sub-heading (use '###').
-- Define terms precisely. Include formal definitions verbatim when the document provides them.
-- State all claims, properties, and results the document makes about it.
-- Reproduce every formula, equation, or notation exactly, using LaTeX ($...$ or $$...$$).
-- Describe diagrams, tables, and figures in words, preserving labels, axes, and values.
-- Work through examples step by step, preserving numbers and intermediate steps.
-- Note edge cases, exceptions, assumptions, and caveats the document mentions.
-- Preserve cross-references ("see section X", "as shown in figure Y") when they appear.
-- Capture the author's reasoning and motivation, not just the conclusions.
+Writing style rules (follow these strictly):
+- Write in connected paragraphs. Avoid bullet lists except for short enumerations of truly
+  parallel items (e.g. a list of algorithm steps, a list of named properties). Never use
+  bullets as a substitute for a sentence.
+- Use '###' sub-headings only to mark a genuine new sub-topic within the section. Do not
+  create a sub-heading for every concept. Several related concepts can live in one paragraph
+  under the same heading.
+- Bold text ($**term**$) only when introducing a technical term for the first time, inline
+  in a sentence (e.g. "this is called **entropy**"). Do not use bold as a label prefix
+  like "**Definition:**" or "**Key point:**".
+- Reproduce every formula exactly using LaTeX ($...$ inline or $$...$$ display). Introduce
+  each formula in a sentence that explains what its symbols mean.
+- When a diagram or figure is important, describe what it shows in plain prose and integrate
+  that description into the surrounding explanation. Do not create a separate "Diagram:" section.
+- Work through examples step by step in prose, including all numbers and intermediate steps.
+- Capture motivation and reasoning — not just "what" but "why" and "when".
 
-Constraints:
-- Do not summarize or compress — unfold each idea fully.
-- Do not invent content not present on the pages. If something is unclear, say so.
-- Do not add introductions, conclusions, or meta-commentary about the section.
-- Use Markdown: sub-headings, bullet lists, numbered lists for procedures, fenced code for code.
+Content rules:
+- Do not summarize or compress — cover every concept, claim, definition, and example fully.
+- Do not invent content not present on the pages.
+- Do not add introductions, conclusions, or meta-commentary.
 - Write in the same language as the document.
-- Output only the breakdown itself.`, title, startPage, endPage, len(pagePaths))
+- Output only the notes themselves.`, title, startPage, endPage, len(pagePaths))
 
 	out, err := p.GenerateWithImages(ctx, model, prompt, pagePaths)
 	if err != nil {

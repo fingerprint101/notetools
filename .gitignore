@@ -17,3 +17,4 @@ nt-darwin-*
 # Test artifacts
 *.tmp
 *.txt
+tests/
