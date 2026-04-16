@@ -40,7 +40,7 @@ Examples:
 	RunE: runConfigSet,
 }
 
-var validCmds = map[string]bool{"clean": true, "merge": true, "explain": true}
+var validCmds = map[string]bool{"clean": true, "merge": true, "explain": true, "plan": true}
 var validProviders = map[string]bool{"opencode": true, "claude": true, "codex": true}
 
 func init() {
