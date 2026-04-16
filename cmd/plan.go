@@ -63,7 +63,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	p, model := providerFor("plan")
-	fmt.Fprintf(os.Stderr, "Planning with %s (%s)...\n", p, model)
+	fmt.Fprintf(os.Stderr, "Planning with %s (%s)...\n", p.Name(), model)
 
 	mappings, err := plan.Run(cmd.Context(), p, model, string(content1), string(content2))
 	if err != nil {

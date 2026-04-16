@@ -66,7 +66,7 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p, model)
+	fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p.Name(), model)
 	result, err := merge.Run(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
 	if err != nil {
 		return err

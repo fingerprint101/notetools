@@ -10,12 +10,20 @@ import (
 )
 
 type Section struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	Title     string
+	StartLine int
+	EndLine   int
+	Content   string
+}
+
+type sectionRange struct {
+	Title     string `json:"title"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
 }
 
 type sectionsResponse struct {
-	Sections []Section `json:"sections"`
+	Sections []sectionRange `json:"sections"`
 }
 
 type cleanedResponse struct {
@@ -33,10 +41,11 @@ var sectionSchema = map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"title":   map[string]any{"type": "string", "minLength": 1},
-					"content": map[string]any{"type": "string", "minLength": 1},
+					"title":      map[string]any{"type": "string", "minLength": 1},
+					"start_line": map[string]any{"type": "integer", "minimum": 1},
+					"end_line":   map[string]any{"type": "integer", "minimum": 1},
 				},
-				"required": []string{"title", "content"},
+				"required": []string{"title", "start_line", "end_line"},
 			},
 		},
 	},
@@ -53,10 +62,13 @@ var cleanSectionSchema = map[string]any{
 }
 
 func SectionTranscript(ctx context.Context, p llm.Provider, model, transcript string) ([]Section, error) {
+	numberedTranscript, lineCount := withLineNumbers(transcript)
+
 	prompt := fmt.Sprintf(`You are organizing an automatic transcript of an Italian university lecture.
 
 Task:
 - Split the transcript into coherent thematic sections.
+- Return only section titles plus inclusive line ranges.
 
 Mandatory constraints:
 - Do not summarize.
@@ -64,8 +76,10 @@ Mandatory constraints:
 - Do not remove anything.
 - Do not add anything.
 - Preserve the original order of the lecture.
-- Each section must contain a contiguous block of the original text.
-- The combined content of all sections must cover the full transcript.
+- Each section must contain a contiguous block of the original transcript lines.
+- The combined line ranges must cover the full transcript from line 1 to line %d.
+- Use the numbered lines below as the source of truth for boundaries.
+- Line ranges must be contiguous and non-overlapping.
 - Give each section a short title in Italian, using correct Italian spelling, including accents when needed.
 - Prefer a fine-grained structure rather than a small number of broad sections.
 - Create specific sections whenever the speaker changes subtopic, example, system category, comparison, or teaching focus.
@@ -79,7 +93,7 @@ Transcript:
 <<<TRANSCRIPT
 %s
 TRANSCRIPT>>>
-`, transcript)
+`, lineCount, numberedTranscript)
 
 	raw, err := p.GenerateJSON(ctx, model, prompt, sectionSchema)
 	if err != nil {
@@ -95,12 +109,38 @@ TRANSCRIPT>>>
 		return nil, fmt.Errorf("model returned an empty section list")
 	}
 
+	lines := strings.Split(transcript, "\n")
+	sections := make([]Section, 0, len(resp.Sections))
+	nextStart := 1
+
 	for i := range resp.Sections {
-		resp.Sections[i].Title = strings.TrimSpace(resp.Sections[i].Title)
-		resp.Sections[i].Content = strings.TrimSpace(resp.Sections[i].Content)
+		sec := resp.Sections[i]
+		sec.Title = strings.TrimSpace(sec.Title)
+		if sec.Title == "" {
+			return nil, fmt.Errorf("model returned an empty title for section %d", i+1)
+		}
+		if sec.StartLine != nextStart {
+			return nil, fmt.Errorf("section %q starts at line %d, expected %d", sec.Title, sec.StartLine, nextStart)
+		}
+		if sec.EndLine < sec.StartLine || sec.EndLine > len(lines) {
+			return nil, fmt.Errorf("section %q has invalid line range %d-%d", sec.Title, sec.StartLine, sec.EndLine)
+		}
+
+		content := strings.TrimSpace(strings.Join(lines[sec.StartLine-1:sec.EndLine], "\n"))
+		sections = append(sections, Section{
+			Title:     sec.Title,
+			StartLine: sec.StartLine,
+			EndLine:   sec.EndLine,
+			Content:   content,
+		})
+		nextStart = sec.EndLine + 1
 	}
 
-	return resp.Sections, nil
+	if nextStart != len(lines)+1 {
+		return nil, fmt.Errorf("section ranges do not cover the full transcript")
+	}
+
+	return sections, nil
 }
 
 func CleanSection(ctx context.Context, p llm.Provider, model, title, content string) (string, error) {
@@ -155,4 +195,13 @@ func RenderMarkdown(docTitle string, sections []Section) string {
 		fmt.Fprintf(&b, "## %s\n%s\n\n", s.Title, strings.TrimSpace(s.Content))
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func withLineNumbers(text string) (string, int) {
+	lines := strings.Split(text, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
+	}
+	return strings.TrimRight(b.String(), "\n"), len(lines)
 }

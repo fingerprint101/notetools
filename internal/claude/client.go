@@ -16,6 +16,10 @@ func New() *Client {
 	return &Client{}
 }
 
+func (c *Client) Name() string {
+	return "claude"
+}
+
 func run(ctx context.Context, model, prompt string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--model", model)
 

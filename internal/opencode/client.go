@@ -17,6 +17,10 @@ func New() *Client {
 	return &Client{}
 }
 
+func (c *Client) Name() string {
+	return "opencode"
+}
+
 type event struct {
 	Type string `json:"type"`
 	Part struct {

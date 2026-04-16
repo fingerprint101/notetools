@@ -8,6 +8,7 @@ import (
 )
 
 type Provider interface {
+	Name() string
 	Generate(ctx context.Context, model, prompt string) (string, error)
 	GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error)
 	GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error)

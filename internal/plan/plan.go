@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/fingerprint/notetools/internal/llm"
@@ -129,17 +130,39 @@ func snippet(lines []string, sec section, maxChars int) string {
 	return b.String()
 }
 
-func formatSections(label string, secs []section, lines []string) string {
+func formatSections(label string, secs []section, lines []string, snippetChars int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s SECTIONS (%d total):\n", label, len(secs))
 	for i, s := range secs {
 		fmt.Fprintf(&b, "[%d] (H%d, lines %d-%d) %s\n", i, s.Level, s.StartLine, s.EndLine, s.Title)
-		snip := snippet(lines, s, 220)
+		snip := snippet(lines, s, snippetChars)
 		if snip != "" {
 			fmt.Fprintf(&b, "    > %s\n", snip)
 		}
 	}
 	return b.String()
+}
+
+func snippetBudget(totalSections int) int {
+	if totalSections <= 0 {
+		return 0
+	}
+
+	const (
+		totalBudget = 4000
+		minChars    = 80
+		maxChars    = 220
+	)
+
+	perSection := int(math.Floor(float64(totalBudget) / float64(totalSections)))
+	switch {
+	case perSection < minChars:
+		return minChars
+	case perSection > maxChars:
+		return maxChars
+	default:
+		return perSection
+	}
 }
 
 // Run produces a merge plan: for each section in file1Content, it identifies
@@ -164,6 +187,7 @@ func Run(ctx context.Context, p llm.Provider, model, file1Content, file2Content 
 	if maxF2 < 0 {
 		maxF2 = 0
 	}
+	snippetChars := snippetBudget(len(s1) + len(s2))
 
 	prompt := fmt.Sprintf(`You are a note-planning assistant. You are given the section outlines of two Markdown notes. For EACH section in FILE 1, decide whether FILE 2 covers the same topic.
 
@@ -176,7 +200,7 @@ Output one match record per FILE 1 section:
 Match by topic, not by heading wording. A H2 in FILE 1 may correspond to a H2 in FILE 2 even if their titles differ. Output every FILE 1 section exactly once, in order. Reply with valid JSON only.
 
 %s
-%s`, maxF1, maxF2, formatSections("FILE 1", s1, lines1), formatSections("FILE 2", s2, lines2))
+%s`, maxF1, maxF2, formatSections("FILE 1", s1, lines1, snippetChars), formatSections("FILE 2", s2, lines2, snippetChars))
 
 	raw, err := p.GenerateJSON(ctx, model, prompt, matchSchema)
 	if err != nil {
