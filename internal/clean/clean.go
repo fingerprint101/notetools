@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/fingerprint/notetools/internal/llm"
 )
@@ -62,13 +63,15 @@ var cleanSectionSchema = map[string]any{
 }
 
 func SectionTranscript(ctx context.Context, p llm.Provider, model, transcript string) ([]Section, error) {
-	numberedTranscript, lineCount := withLineNumbers(transcript)
+	units := splitTranscriptUnits(transcript)
+	numberedTranscript := withUnitNumbers(units)
+	unitCount := len(units)
 
 	prompt := fmt.Sprintf(`You are organizing an automatic transcript of an Italian university lecture.
 
 Task:
 - Split the transcript into coherent thematic sections.
-- Return only section titles plus inclusive line ranges.
+- Return only section titles plus inclusive unit ranges.
 
 Mandatory constraints:
 - Do not summarize.
@@ -76,10 +79,10 @@ Mandatory constraints:
 - Do not remove anything.
 - Do not add anything.
 - Preserve the original order of the lecture.
-- Each section must contain a contiguous block of the original transcript lines.
-- The combined line ranges must cover the full transcript from line 1 to line %d.
-- Use the numbered lines below as the source of truth for boundaries.
-- Line ranges must be contiguous and non-overlapping.
+- Each section must contain a contiguous block of the original transcript units.
+- The combined unit ranges must cover the full transcript from unit 1 to unit %d.
+- Use the numbered units below as the source of truth for boundaries.
+- Unit ranges must be contiguous and non-overlapping.
 - Give each section a short title in Italian, using correct Italian spelling, including accents when needed.
 - Prefer a fine-grained structure rather than a small number of broad sections.
 - Create specific sections whenever the speaker changes subtopic, example, system category, comparison, or teaching focus.
@@ -93,7 +96,7 @@ Transcript:
 <<<TRANSCRIPT
 %s
 TRANSCRIPT>>>
-`, lineCount, numberedTranscript)
+`, unitCount, numberedTranscript)
 
 	raw, err := p.GenerateJSON(ctx, model, prompt, sectionSchema)
 	if err != nil {
@@ -109,7 +112,6 @@ TRANSCRIPT>>>
 		return nil, fmt.Errorf("model returned an empty section list")
 	}
 
-	lines := strings.Split(transcript, "\n")
 	sections := make([]Section, 0, len(resp.Sections))
 	nextStart := 1
 
@@ -122,11 +124,11 @@ TRANSCRIPT>>>
 		if sec.StartLine != nextStart {
 			return nil, fmt.Errorf("section %q starts at line %d, expected %d", sec.Title, sec.StartLine, nextStart)
 		}
-		if sec.EndLine < sec.StartLine || sec.EndLine > len(lines) {
+		if sec.EndLine < sec.StartLine || sec.EndLine > len(units) {
 			return nil, fmt.Errorf("section %q has invalid line range %d-%d", sec.Title, sec.StartLine, sec.EndLine)
 		}
 
-		content := strings.TrimSpace(strings.Join(lines[sec.StartLine-1:sec.EndLine], "\n"))
+		content := strings.TrimSpace(strings.Join(units[sec.StartLine-1:sec.EndLine], "\n"))
 		sections = append(sections, Section{
 			Title:     sec.Title,
 			StartLine: sec.StartLine,
@@ -136,7 +138,7 @@ TRANSCRIPT>>>
 		nextStart = sec.EndLine + 1
 	}
 
-	if nextStart != len(lines)+1 {
+	if nextStart != len(units)+1 {
 		return nil, fmt.Errorf("section ranges do not cover the full transcript")
 	}
 
@@ -197,11 +199,75 @@ func RenderMarkdown(docTitle string, sections []Section) string {
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-func withLineNumbers(text string) (string, int) {
-	lines := strings.Split(text, "\n")
-	var b strings.Builder
-	for i, line := range lines {
-		fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
+func splitTranscriptUnits(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
 	}
-	return strings.TrimRight(b.String(), "\n"), len(lines)
+
+	paragraphs := strings.Split(text, "\n")
+	units := make([]string, 0, len(paragraphs))
+
+	for _, paragraph := range paragraphs {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+
+		if strings.ContainsAny(paragraph, ".!?") {
+			for _, sentence := range splitParagraphSentences(paragraph) {
+				if sentence != "" {
+					units = append(units, sentence)
+				}
+			}
+			continue
+		}
+
+		units = append(units, paragraph)
+	}
+
+	if len(units) == 0 {
+		return []string{text}
+	}
+
+	return units
+}
+
+func splitParagraphSentences(paragraph string) []string {
+	var (
+		units   []string
+		current strings.Builder
+	)
+
+	flush := func() {
+		sentence := strings.TrimSpace(current.String())
+		if sentence != "" {
+			units = append(units, sentence)
+		}
+		current.Reset()
+	}
+
+	runes := []rune(paragraph)
+	for i, r := range runes {
+		current.WriteRune(r)
+		if !strings.ContainsRune(".!?", r) {
+			continue
+		}
+
+		nextIsBoundary := i == len(runes)-1 || unicode.IsSpace(runes[i+1])
+		if nextIsBoundary {
+			flush()
+		}
+	}
+
+	flush()
+	return units
+}
+
+func withUnitNumbers(units []string) string {
+	var b strings.Builder
+	for i, unit := range units {
+		fmt.Fprintf(&b, "%d\t%s\n", i+1, unit)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
