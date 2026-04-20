@@ -21,7 +21,16 @@ func (c *Client) Name() string {
 }
 
 func run(ctx context.Context, model, prompt string) (string, error) {
-	cmd := exec.CommandContext(ctx, "codex", "exec", "--model", model, prompt)
+	cmd := exec.CommandContext(
+		ctx,
+		"codex",
+		"exec",
+		"--ephemeral",
+		"--skip-git-repo-check",
+		"--model",
+		model,
+		prompt,
+	)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

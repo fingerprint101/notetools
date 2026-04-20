@@ -80,7 +80,18 @@ Task:
 }
 
 func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage int) (string, error) {
-	prompt := fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
+	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths))
+
+	out, err := p.GenerateWithImages(ctx, model, prompt, pagePaths)
+	if err != nil {
+		return "", fmt.Errorf("explain section %q: %w", title, err)
+	}
+
+	return strings.TrimSpace(out), nil
+}
+
+func buildExplainPrompt(title string, startPage, endPage, pageCount int) string {
+	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
 Your goal is to produce dense, exhaustive notes written in flowing prose. The notes should
@@ -103,20 +114,18 @@ Writing style rules (follow these strictly):
   that description into the surrounding explanation. Do not create a separate "Diagram:" section.
 - Work through examples step by step in prose, including all numbers and intermediate steps.
 - Capture motivation and reasoning — not just "what" but "why" and "when".
+- Write in a direct explanatory voice, as if the notes themselves are teaching the material.
+- Do not refer to slides, pages, figures, or the document as an external source unless that
+  reference is genuinely required to understand the content.
+- Rewrite source-reporting phrasing into direct exposition. Avoid wording such as "the slide says",
+  "the slides show", "this page introduces", "the figure illustrates", or "the document states".
 
 Content rules:
 - Do not summarize or compress — cover every concept, claim, definition, and example fully.
 - Do not invent content not present on the pages.
 - Do not add introductions, conclusions, or meta-commentary.
 - Write in the same language as the document.
-- Output only the notes themselves.`, title, startPage, endPage, len(pagePaths))
-
-	out, err := p.GenerateWithImages(ctx, model, prompt, pagePaths)
-	if err != nil {
-		return "", fmt.Errorf("explain section %q: %w", title, err)
-	}
-
-	return strings.TrimSpace(out), nil
+- Output only the notes themselves.`, title, startPage, endPage, pageCount)
 }
 
 func RenderMarkdown(docTitle string, sections []SectionWithExplanation) string {

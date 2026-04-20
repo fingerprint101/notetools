@@ -3,6 +3,7 @@ nt
 nt-bin
 nt-linux-*
 nt-darwin-*
+.codex
 
 # Go
 *.exe

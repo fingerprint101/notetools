@@ -4,6 +4,7 @@ AI CLI for document explanation, transcript cleaning, and note merging. Routes r
 
 - **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
+- **`nt plan`** — Identify which sections should be merged and where missing sections belong
 - **`nt merge`** (`m`) — Merge snippets from two notes into one
 - **`nt clean`** (`c`) — Section and clean a raw transcript
 
@@ -19,6 +20,26 @@ git clone https://github.com/fingerprint/notetools
 cd notetools
 make build
 sudo make install   # installs to /usr/local/bin/nt
+```
+
+### Install the Codex skill
+
+The repository includes a Codex skill in [`skills/notetools-cli`](skills/notetools-cli) for agents that should operate `nt` directly.
+
+Install it into your local Codex skills directory:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R skills/notetools-cli ~/.codex/skills/
+```
+
+Then invoke it in Codex with prompts such as:
+
+```text
+Use $notetools-cli to explain this PDF with nt.
+Use $notetools-cli to plan which sections from one note should be merged into another.
+Use $notetools-cli to debug why nt merge is failing.
+Use $notetools-cli to preview two note files and choose merge ranges.
 ```
 
 ## Configuration
@@ -60,7 +81,19 @@ nt p notes.md:10-30         # lines 10 through 30
 
 ### Merge two notes
 
-Use `preview` to find line ranges, then merge:
+Use `plan` when you first need to identify which sections from one note belong in the other:
+
+```bash
+nt plan alice_notes.md bob_notes.md
+# => plan-alice_notes-bob_notes.md
+```
+
+The plan maps each source section to either:
+
+- the corresponding section range in the target, or
+- the target section after which missing content should be inserted
+
+Use `preview` to inspect the relevant lines, then merge:
 
 ```bash
 nt m alice_notes.md:10-85 bob_notes.md:30-120
