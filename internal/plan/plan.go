@@ -23,6 +23,15 @@ type Mapping struct {
 	InsertAfterLine int `json:"insert_after_line"`
 }
 
+type Document struct {
+	Version    int       `json:"version"`
+	SourcePath string    `json:"source_path"`
+	TargetPath string    `json:"target_path"`
+	Mappings   []Mapping `json:"mappings"`
+}
+
+const documentVersion = 1
+
 type section struct {
 	Title     string
 	Level     int
@@ -269,45 +278,34 @@ func mappingFor(m sectionMatch, s1, s2 []section) Mapping {
 	return mp
 }
 
-// RenderMarkdown produces the plan as a human-readable Markdown file.
-func RenderMarkdown(file1Name, file2Name string, mappings []Mapping, file2Lines []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Merge Plan: `%s` → `%s`\n\n", file1Name, file2Name)
-	fmt.Fprintf(&b, "For each section in `%s`, this plan shows where the content maps to in `%s`.\n\n", file1Name, file2Name)
-	fmt.Fprintf(&b, "---\n\n")
-
-	for _, m := range mappings {
-		if m.PresentInFile2 {
-			fmt.Fprintf(&b, "## [PRESENT] %s\n\n", m.Title)
-			fmt.Fprintf(&b, "- **Source** (`%s`): lines %d–%d\n", file1Name, m.File1Start, m.File1End)
-			fmt.Fprintf(&b, "- **Target** (`%s`): lines %d–%d\n", file2Name, m.File2Start, m.File2End)
-		} else {
-			if m.InsertAfterLine == 0 {
-				fmt.Fprintf(&b, "## [INSERT at end] %s\n\n", m.Title)
-				fmt.Fprintf(&b, "- **Source** (`%s`): lines %d–%d\n", file1Name, m.File1Start, m.File1End)
-				fmt.Fprintf(&b, "- **Target** (`%s`): append at end\n", file2Name)
-			} else {
-				fmt.Fprintf(&b, "## [INSERT after line %d] %s\n\n", m.InsertAfterLine, m.Title)
-				fmt.Fprintf(&b, "- **Source** (`%s`): lines %d–%d\n", file1Name, m.File1Start, m.File1End)
-				fmt.Fprintf(&b, "- **Target** (`%s`): insert after line %d", file2Name, m.InsertAfterLine)
-				if m.InsertAfterLine > 0 && m.InsertAfterLine <= len(file2Lines) {
-					context := strings.TrimSpace(file2Lines[m.InsertAfterLine-1])
-					if context != "" {
-						fmt.Fprintf(&b, " — `%s`", truncate(context, 80))
-					}
-				}
-				fmt.Fprintf(&b, "\n")
-			}
-		}
-		fmt.Fprintf(&b, "\n")
+func NewDocument(sourcePath, targetPath string, mappings []Mapping) Document {
+	return Document{
+		Version:    documentVersion,
+		SourcePath: sourcePath,
+		TargetPath: targetPath,
+		Mappings:   mappings,
 	}
-
-	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
+func Render(doc Document) (string, error) {
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal plan document: %w", err)
 	}
-	return s[:max-3] + "..."
+	return string(raw) + "\n", nil
+}
+
+func Parse(content string) (Document, error) {
+	var doc Document
+	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+		return Document{}, fmt.Errorf("parse plan document: %w", err)
+	}
+
+	if doc.Version != documentVersion {
+		return Document{}, fmt.Errorf("unsupported plan version %d", doc.Version)
+	}
+	if doc.SourcePath == "" || doc.TargetPath == "" {
+		return Document{}, fmt.Errorf("plan is missing source or target paths")
+	}
+	return doc, nil
 }

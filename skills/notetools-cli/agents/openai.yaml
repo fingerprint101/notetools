@@ -1,4 +1,0 @@
-interface:
-  display_name: "Notetools CLI"
-  short_description: "Use nt for notes and PDFs"
-  default_prompt: "Use $notetools-cli to operate the nt CLI for PDF explanation, transcript cleaning, note preview, merge planning, and note merging."

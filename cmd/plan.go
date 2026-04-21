@@ -17,17 +17,18 @@ var planCmd = &cobra.Command{
 	Short: "Plan the merging of two Markdown notes",
 	Long: `Plan how to merge SOURCE into TARGET.
 
-For each section in SOURCE, the plan identifies:
+The output is a machine-readable JSON plan for the execute command.
+For each section in SOURCE, it records either:
 - The line range in TARGET that covers the same content, or
 - The line in TARGET after which the missing content should be inserted.
 
-The plan is written to a Markdown file (default: plan-<source>-<target>.md).`,
+The plan is written to a JSON file (default: plan-<source>-<target>.json).`,
 	Args: cobra.ExactArgs(2),
 	RunE: runPlan,
 }
 
 func init() {
-	planCmd.Flags().StringVarP(&planOutput, "output", "o", "", "output file path (default: plan-<source>-<target>.md)")
+	planCmd.Flags().StringVarP(&planOutput, "output", "o", "", "output file path (default: plan-<source>-<target>.json)")
 	rootCmd.AddCommand(planCmd)
 }
 
@@ -52,7 +53,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	if outPath == "" {
 		stem1 := strings.TrimSuffix(filepath.Base(path1), ".md")
 		stem2 := strings.TrimSuffix(filepath.Base(path2), ".md")
-		outPath = fmt.Sprintf("plan-%s-%s.md", stem1, stem2)
+		outPath = fmt.Sprintf("plan-%s-%s.json", stem1, stem2)
 	}
 
 	if noOverwrite {
@@ -70,17 +71,26 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	file2Lines := strings.Split(string(content2), "\n")
-	file1Name := filepath.Base(path1)
-	file2Name := filepath.Base(path2)
+	absPath1, err := filepath.Abs(path1)
+	if err != nil {
+		return fmt.Errorf("resolve source path: %w", err)
+	}
+	absPath2, err := filepath.Abs(path2)
+	if err != nil {
+		return fmt.Errorf("resolve target path: %w", err)
+	}
 
-	md := plan.RenderMarkdown(file1Name, file2Name, mappings, file2Lines)
+	doc := plan.NewDocument(absPath1, absPath2, mappings)
+	output, err := plan.Render(doc)
+	if err != nil {
+		return err
+	}
 
-	if err := os.WriteFile(outPath, []byte(md), 0o644); err != nil {
+	if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Written: %s\n", outPath)
-	fmt.Print(md)
+	fmt.Print(output)
 	return nil
 }

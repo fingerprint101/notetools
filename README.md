@@ -5,6 +5,7 @@ AI CLI for document explanation, transcript cleaning, and note merging. Routes r
 - **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
 - **`nt plan`** — Identify which sections should be merged and where missing sections belong
+- **`nt execute`** — Execute the merges described by a plan file
 - **`nt merge`** (`m`) — Merge snippets from two notes into one
 - **`nt clean`** (`c`) — Section and clean a raw transcript
 
@@ -85,15 +86,22 @@ Use `plan` when you first need to identify which sections from one note belong i
 
 ```bash
 nt plan alice_notes.md bob_notes.md
-# => plan-alice_notes-bob_notes.md
+# => plan-alice_notes-bob_notes.json
 ```
 
-The plan maps each source section to either:
+The plan file is machine-readable JSON. For each source section it records either:
 
 - the corresponding section range in the target, or
 - the target section after which missing content should be inserted
 
-Use `preview` to inspect the relevant lines, then merge:
+Use `execute` to apply the whole plan automatically, or `preview` + `merge` when you want to inspect ranges manually:
+
+```bash
+nt execute plan-alice_notes-bob_notes.json
+nt execute plan-alice_notes-bob_notes.json -i "Keep Bob's terminology where possible"
+```
+
+Manual merge flow:
 
 ```bash
 nt m alice_notes.md:10-85 bob_notes.md:30-120
