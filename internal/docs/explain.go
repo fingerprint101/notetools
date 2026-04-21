@@ -1,4 +1,4 @@
-package explain
+package docs
 
 import (
 	"context"
@@ -128,7 +128,7 @@ Content rules:
 - Output only the notes themselves.`, title, startPage, endPage, pageCount)
 }
 
-func RenderMarkdown(docTitle string, sections []SectionWithExplanation) string {
+func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", docTitle)
 	for _, s := range sections {

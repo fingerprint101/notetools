@@ -81,7 +81,7 @@ func replaceLines(path string, start, end int, newContent string) error {
 	}
 
 	newLines := strings.Split(newContent, "\n")
-	result := make([]string, 0, len(lines)-( end-start+1)+len(newLines))
+	result := make([]string, 0, len(lines)-(end-start+1)+len(newLines))
 	result = append(result, lines[:start-1]...)
 	result = append(result, newLines...)
 	result = append(result, lines[end:]...)

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/merge"
+	"github.com/fingerprint/notetools/internal/notes"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +67,7 @@ func runMerge(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Merging with %s (%s)...\n", p.Name(), model)
-	result, err := merge.Run(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
+	result, err := notes.Merge(cmd.Context(), p, model, snippet1, snippet2, mergeInstructions)
 	if err != nil {
 		return err
 	}

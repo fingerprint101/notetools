@@ -1,4 +1,4 @@
-package merge
+package notes
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/fingerprint/notetools/internal/llm"
 )
 
-const promptTemplate = `You are a note-merging assistant. You are given two snippets from different
+const mergePromptTemplate = `You are a note-merging assistant. You are given two snippets from different
 people's notes on the same topic. Merge them into a single unified Markdown document.
 Treat SNIPPET 1 as source material to integrate into SNIPPET 2, which is the target note whose
 style, tone, and formatting conventions should be preserved by default.
@@ -35,16 +35,16 @@ CRITICAL RULES:
 --- SNIPPET 2 ---
 %s`
 
-func buildPrompt(snippet1, snippet2, instructions string) string {
+func buildMergePrompt(snippet1, snippet2, instructions string) string {
 	extra := ""
 	if instructions != "" {
 		extra = fmt.Sprintf("\nAdditional instructions: %s\n", instructions)
 	}
 
-	return fmt.Sprintf(promptTemplate, extra, snippet1, snippet2)
+	return fmt.Sprintf(mergePromptTemplate, extra, snippet1, snippet2)
 }
 
-func Run(ctx context.Context, p llm.Provider, model, snippet1, snippet2, instructions string) (string, error) {
-	prompt := buildPrompt(snippet1, snippet2, instructions)
+func Merge(ctx context.Context, p llm.Provider, model, snippet1, snippet2, instructions string) (string, error) {
+	prompt := buildMergePrompt(snippet1, snippet2, instructions)
 	return p.Generate(ctx, model, prompt)
 }

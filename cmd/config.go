@@ -6,7 +6,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/fingerprint/notetools/internal/config"
+	"github.com/fingerprint/notetools/internal/app"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +50,7 @@ func init() {
 }
 
 func runConfigShow(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
+	cfg, err := app.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -79,18 +79,18 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown provider %q: must be one of opencode, claude, codex", provider)
 	}
 
-	cfg, err := config.Load()
+	cfg, err := app.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	cc := config.CommandConfig{Provider: provider, Model: model}
+	cc := app.CommandConfig{Provider: provider, Model: model}
 	if cfg.Commands == nil {
-		cfg.Commands = map[string]config.CommandConfig{}
+		cfg.Commands = map[string]app.CommandConfig{}
 	}
 	cfg.Commands[cmdName] = cc
 
-	if err := config.Save(cfg); err != nil {
+	if err := app.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 

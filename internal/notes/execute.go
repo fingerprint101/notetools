@@ -1,4 +1,4 @@
-package execute
+package notes
 
 import (
 	"context"
@@ -7,11 +7,9 @@ import (
 	"strings"
 
 	"github.com/fingerprint/notetools/internal/llm"
-	"github.com/fingerprint/notetools/internal/merge"
-	"github.com/fingerprint/notetools/internal/plan"
 )
 
-type Progress struct {
+type ExecuteProgress struct {
 	Step         int
 	Total        int
 	Title        string
@@ -33,7 +31,7 @@ type lineEdit struct {
 	insertedLines int
 }
 
-func Run(ctx context.Context, p llm.Provider, model string, doc plan.Document, instructions string, notify func(Progress)) error {
+func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocument, instructions string, notify func(ExecuteProgress)) error {
 	sourceData, err := os.ReadFile(doc.SourcePath)
 	if err != nil {
 		return fmt.Errorf("read source file: %w", err)
@@ -53,7 +51,7 @@ func Run(ctx context.Context, p llm.Provider, model string, doc plan.Document, i
 			return fmt.Errorf("source section %q: %w", mapping.Title, err)
 		}
 
-		progress := Progress{
+		progress := ExecuteProgress{
 			Step:         i + 1,
 			Total:        len(doc.Mappings),
 			Title:        mapping.Title,
@@ -77,7 +75,7 @@ func Run(ctx context.Context, p llm.Provider, model string, doc plan.Document, i
 				return fmt.Errorf("target section %q: %w", mapping.Title, err)
 			}
 
-			merged, err := merge.Run(ctx, p, model, sourceSnippet, targetSnippet, instructions)
+			merged, err := Merge(ctx, p, model, sourceSnippet, targetSnippet, instructions)
 			if err != nil {
 				return fmt.Errorf("merge %q failed: %w", mapping.Title, err)
 			}
@@ -96,7 +94,7 @@ func Run(ctx context.Context, p llm.Provider, model string, doc plan.Document, i
 				notify(progress)
 			}
 
-			merged, err := merge.Run(ctx, p, model, sourceSnippet, "", buildInsertInstructions(instructions))
+			merged, err := Merge(ctx, p, model, sourceSnippet, "", buildInsertInstructions(instructions))
 			if err != nil {
 				return fmt.Errorf("insert %q failed: %w", mapping.Title, err)
 			}

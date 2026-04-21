@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/clean"
+	"github.com/fingerprint/notetools/internal/notes"
 	"github.com/spf13/cobra"
 )
 
@@ -56,24 +56,24 @@ func runClean(cmd *cobra.Command, args []string) error {
 	p, model := providerFor("clean")
 
 	fmt.Fprintf(os.Stderr, "Splitting transcript into sections...\n")
-	sections, err := clean.SectionTranscript(cmd.Context(), p, model, transcript)
+	sections, err := notes.SectionTranscript(cmd.Context(), p, model, transcript)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Got %d sections.\n", len(sections))
 
-	cleaned := make([]clean.Section, 0, len(sections))
+	cleaned := make([]notes.TranscriptSection, 0, len(sections))
 	for i, s := range sections {
 		fmt.Fprintf(os.Stderr, "Cleaning section %d/%d: %s\n", i+1, len(sections), s.Title)
-		text, err := clean.CleanSection(cmd.Context(), p, model, s.Title, s.Content)
+		text, err := notes.CleanSection(cmd.Context(), p, model, s.Title, s.Content)
 		if err != nil {
 			return err
 		}
-		cleaned = append(cleaned, clean.Section{Title: s.Title, Content: text})
+		cleaned = append(cleaned, notes.TranscriptSection{Title: s.Title, Content: text})
 	}
 
 	docTitle := stem + " - cleaned transcript per section"
-	result := clean.RenderMarkdown(docTitle, cleaned)
+	result := notes.RenderCleanMarkdown(docTitle, cleaned)
 
 	if err := os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
 		return err

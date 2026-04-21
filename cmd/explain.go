@@ -6,8 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/explain"
-	"github.com/fingerprint/notetools/internal/pdf"
+	"github.com/fingerprint/notetools/internal/docs"
 	"github.com/spf13/cobra"
 )
 
@@ -51,14 +50,14 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	p, model := providerFor("explain")
 
 	fmt.Fprintf(os.Stderr, "Identifying sections in %s...\n", pdfPath)
-	sections, err := explain.IdentifySections(cmd.Context(), p, model, pdfPath)
+	sections, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Found %d sections.\n", len(sections))
 
 	fmt.Fprintf(os.Stderr, "Rendering PDF pages at 150 DPI...\n")
-	pages, err := pdf.RenderPages(pdfPath, 150)
+	pages, err := docs.RenderPages(pdfPath, 150)
 	if err != nil {
 		return err
 	}
@@ -68,7 +67,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	explained := make([]explain.SectionWithExplanation, 0, len(sections))
+	explained := make([]docs.SectionWithExplanation, 0, len(sections))
 	for i, s := range sections {
 		fmt.Fprintf(os.Stderr, "  Section %d/%d: %s (pages %d-%d)\n", i+1, len(sections), s.Title, s.StartPage, s.EndPage)
 
@@ -82,19 +81,19 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "    Explaining %d page(s)...\n", len(sectionPages))
-		exp, err := explain.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage)
+		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage)
 		if err != nil {
 			return err
 		}
 
-		explained = append(explained, explain.SectionWithExplanation{
+		explained = append(explained, docs.SectionWithExplanation{
 			Section:     s,
 			Explanation: exp,
 		})
 	}
 
 	docTitle := stem + " - explained"
-	result := explain.RenderMarkdown(docTitle, explained)
+	result := docs.RenderExplainMarkdown(docTitle, explained)
 
 	if err := os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
 		return err

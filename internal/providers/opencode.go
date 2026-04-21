@@ -1,4 +1,4 @@
-package opencode
+package providers
 
 import (
 	"bufio"
@@ -11,13 +11,13 @@ import (
 	"strings"
 )
 
-type Client struct{}
+type OpenCodeClient struct{}
 
-func New() *Client {
-	return &Client{}
+func NewOpenCode() *OpenCodeClient {
+	return &OpenCodeClient{}
 }
 
-func (c *Client) Name() string {
+func (c *OpenCodeClient) Name() string {
 	return "opencode"
 }
 
@@ -60,17 +60,17 @@ func runOpenCode(ctx context.Context, args []string) (string, error) {
 	return result.String(), nil
 }
 
-func (c *Client) Generate(ctx context.Context, model, prompt string) (string, error) {
+func (c *OpenCodeClient) Generate(ctx context.Context, model, prompt string) (string, error) {
 	return runOpenCode(ctx, []string{
 		"run", "-m", model, "--format", "json", prompt,
 	})
 }
 
-func (c *Client) GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error) {
+func (c *OpenCodeClient) GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error) {
 	return c.GenerateWithImages(ctx, model, prompt, []string{imagePath})
 }
 
-func (c *Client) GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error) {
+func (c *OpenCodeClient) GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error) {
 	args := []string{
 		"run", "-m", model, "--format", "json", prompt,
 	}
@@ -80,7 +80,7 @@ func (c *Client) GenerateWithImages(ctx context.Context, model, prompt string, i
 	return runOpenCode(ctx, args)
 }
 
-func (c *Client) GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error) {
+func (c *OpenCodeClient) GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error) {
 	args := []string{
 		"run", "-m", model, "--format", "json",
 	}

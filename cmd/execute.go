@@ -5,8 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fingerprint/notetools/internal/execute"
-	"github.com/fingerprint/notetools/internal/plan"
+	"github.com/fingerprint/notetools/internal/notes"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +34,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot read %s: %w", planPath, err)
 	}
 
-	doc, err := plan.Parse(string(content))
+	doc, err := notes.ParsePlan(string(content))
 	if err != nil {
 		return fmt.Errorf("parse plan file: %w", err)
 	}
@@ -43,7 +42,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	p, model := providerFor("merge")
 	fmt.Fprintf(os.Stderr, "Executing plan %s with %s (%s)...\n", filepath.Base(planPath), p.Name(), model)
 
-	err = execute.Run(cmd.Context(), p, model, doc, executeInstructions, func(progress execute.Progress) {
+	err = notes.ExecutePlan(cmd.Context(), p, model, doc, executeInstructions, func(progress notes.ExecuteProgress) {
 		if progress.PresentInDst {
 			fmt.Fprintf(
 				os.Stderr,

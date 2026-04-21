@@ -3,17 +3,14 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/fingerprint/notetools/internal/claude"
-	"github.com/fingerprint/notetools/internal/codex"
-	"github.com/fingerprint/notetools/internal/config"
+	"github.com/fingerprint/notetools/internal/app"
 	"github.com/fingerprint/notetools/internal/llm"
-	"github.com/fingerprint/notetools/internal/opencode"
 	"github.com/spf13/cobra"
 )
 
 var (
 	noOverwrite bool
-	appConfig   config.Config
+	appConfig   app.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -22,7 +19,7 @@ var rootCmd = &cobra.Command{
 	Long:  "nt (notetools) uses LLM providers (via opencode) to explain PDFs, clean transcripts, and merge notes.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
-		appConfig, err = config.Load()
+		appConfig, err = app.Load()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
@@ -39,15 +36,5 @@ func Execute() error {
 }
 
 func providerFor(cmdName string) (llm.Provider, string) {
-	cc := config.GetCommandConfig(appConfig, cmdName)
-	switch cc.Provider {
-	case "claude":
-		return claude.New(), cc.Model
-	case "codex":
-		return codex.New(), cc.Model
-	case "opencode":
-		return opencode.New(), cc.Model
-	default:
-		return opencode.New(), cc.Model
-	}
+	return app.ProviderFor(appConfig, cmdName)
 }

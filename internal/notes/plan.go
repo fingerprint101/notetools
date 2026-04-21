@@ -1,4 +1,4 @@
-package plan
+package notes
 
 import (
 	"context"
@@ -10,33 +10,30 @@ import (
 	"github.com/fingerprint/notetools/internal/llm"
 )
 
-// Mapping describes how one section from file1 relates to file2.
 type Mapping struct {
-	Title          string `json:"title"`
-	File1Start     int    `json:"file1_start"`
-	File1End       int    `json:"file1_end"`
-	PresentInFile2 bool   `json:"present_in_file2"`
-	// Set when PresentInFile2 is true.
-	File2Start int `json:"file2_start"`
-	File2End   int `json:"file2_end"`
-	// Set when PresentInFile2 is false. 0 means "append at end".
-	InsertAfterLine int `json:"insert_after_line"`
+	Title           string `json:"title"`
+	File1Start      int    `json:"file1_start"`
+	File1End        int    `json:"file1_end"`
+	PresentInFile2  bool   `json:"present_in_file2"`
+	File2Start      int    `json:"file2_start"`
+	File2End        int    `json:"file2_end"`
+	InsertAfterLine int    `json:"insert_after_line"`
 }
 
-type Document struct {
+type PlanDocument struct {
 	Version    int       `json:"version"`
 	SourcePath string    `json:"source_path"`
 	TargetPath string    `json:"target_path"`
 	Mappings   []Mapping `json:"mappings"`
 }
 
-const documentVersion = 1
+const planDocumentVersion = 1
 
-type section struct {
+type noteSection struct {
 	Title     string
 	Level     int
-	StartLine int // 1-indexed line of heading
-	EndLine   int // 1-indexed last content line included in this section
+	StartLine int
+	EndLine   int
 }
 
 type sectionMatch struct {
@@ -73,9 +70,7 @@ var matchSchema = map[string]any{
 	"required": []string{"matches"},
 }
 
-// parseSections extracts every ## or ### heading and the line range it covers
-// (until the next heading of equal or higher precedence).
-func parseSections(content string) []section {
+func parseNoteSections(content string) []noteSection {
 	lines := strings.Split(content, "\n")
 	type head struct {
 		level int
@@ -99,7 +94,7 @@ func parseSections(content string) []section {
 		heads = append(heads, head{level: level, line: i + 1, title: title})
 	}
 
-	out := make([]section, 0, len(heads))
+	out := make([]noteSection, 0, len(heads))
 	for i, h := range heads {
 		end := len(lines)
 		for j := i + 1; j < len(heads); j++ {
@@ -108,7 +103,7 @@ func parseSections(content string) []section {
 				break
 			}
 		}
-		out = append(out, section{
+		out = append(out, noteSection{
 			Title:     h.title,
 			Level:     h.level,
 			StartLine: h.line,
@@ -118,9 +113,7 @@ func parseSections(content string) []section {
 	return out
 }
 
-// snippet returns up to maxChars of body content, skipping headings and blank
-// lines, starting just after the section's heading line.
-func snippet(lines []string, sec section, maxChars int) string {
+func snippet(lines []string, sec noteSection, maxChars int) string {
 	var b strings.Builder
 	for li := sec.StartLine + 1; li <= sec.EndLine && li <= len(lines); li++ {
 		line := strings.TrimSpace(lines[li-1])
@@ -139,7 +132,7 @@ func snippet(lines []string, sec section, maxChars int) string {
 	return b.String()
 }
 
-func formatSections(label string, secs []section, lines []string, snippetChars int) string {
+func formatSections(label string, secs []noteSection, lines []string, snippetChars int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s SECTIONS (%d total):\n", label, len(secs))
 	for i, s := range secs {
@@ -174,19 +167,12 @@ func snippetBudget(totalSections int) int {
 	}
 }
 
-// Run produces a merge plan: for each section in file1Content, it identifies
-// the corresponding section in file2Content (or where to insert if absent).
-//
-// Sections are extracted deterministically from the markdown headings; the LLM
-// is asked only the semantic question of which file 1 section matches which
-// file 2 section. This keeps the prompt small and avoids forcing the model to
-// count line numbers across two long documents.
-func Run(ctx context.Context, p llm.Provider, model, file1Content, file2Content string) ([]Mapping, error) {
-	s1 := parseSections(file1Content)
+func Plan(ctx context.Context, p llm.Provider, model, file1Content, file2Content string) ([]Mapping, error) {
+	s1 := parseNoteSections(file1Content)
 	if len(s1) == 0 {
 		return nil, fmt.Errorf("no ## or ### sections found in source file")
 	}
-	s2 := parseSections(file2Content)
+	s2 := parseNoteSections(file2Content)
 
 	lines1 := strings.Split(file1Content, "\n")
 	lines2 := strings.Split(file2Content, "\n")
@@ -224,7 +210,38 @@ Match by topic, not by heading wording. A H2 in FILE 1 may correspond to a H2 in
 	return toMappings(resp, s1, s2), nil
 }
 
-func toMappings(resp matchResponse, s1, s2 []section) []Mapping {
+func NewPlanDocument(sourcePath, targetPath string, mappings []Mapping) PlanDocument {
+	return PlanDocument{
+		Version:    planDocumentVersion,
+		SourcePath: sourcePath,
+		TargetPath: targetPath,
+		Mappings:   mappings,
+	}
+}
+
+func RenderPlan(doc PlanDocument) (string, error) {
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal plan document: %w", err)
+	}
+	return string(raw) + "\n", nil
+}
+
+func ParsePlan(content string) (PlanDocument, error) {
+	var doc PlanDocument
+	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+		return PlanDocument{}, fmt.Errorf("parse plan document: %w", err)
+	}
+	if doc.Version != planDocumentVersion {
+		return PlanDocument{}, fmt.Errorf("unsupported plan version %d", doc.Version)
+	}
+	if doc.SourcePath == "" || doc.TargetPath == "" {
+		return PlanDocument{}, fmt.Errorf("plan is missing source or target paths")
+	}
+	return doc, nil
+}
+
+func toMappings(resp matchResponse, s1, s2 []noteSection) []Mapping {
 	seen := make(map[int]bool, len(s1))
 	out := make([]Mapping, 0, len(s1))
 
@@ -252,7 +269,7 @@ func toMappings(resp matchResponse, s1, s2 []section) []Mapping {
 	return out
 }
 
-func mappingFor(m sectionMatch, s1, s2 []section) Mapping {
+func mappingFor(m sectionMatch, s1, s2 []noteSection) Mapping {
 	sec := s1[m.File1Index]
 	mp := Mapping{
 		Title:          sec.Title,
@@ -276,36 +293,4 @@ func mappingFor(m sectionMatch, s1, s2 []section) Mapping {
 		mp.InsertAfterLine = s2[m.InsertAfterFile2Index].EndLine
 	}
 	return mp
-}
-
-func NewDocument(sourcePath, targetPath string, mappings []Mapping) Document {
-	return Document{
-		Version:    documentVersion,
-		SourcePath: sourcePath,
-		TargetPath: targetPath,
-		Mappings:   mappings,
-	}
-}
-
-func Render(doc Document) (string, error) {
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal plan document: %w", err)
-	}
-	return string(raw) + "\n", nil
-}
-
-func Parse(content string) (Document, error) {
-	var doc Document
-	if err := json.Unmarshal([]byte(content), &doc); err != nil {
-		return Document{}, fmt.Errorf("parse plan document: %w", err)
-	}
-
-	if doc.Version != documentVersion {
-		return Document{}, fmt.Errorf("unsupported plan version %d", doc.Version)
-	}
-	if doc.SourcePath == "" || doc.TargetPath == "" {
-		return Document{}, fmt.Errorf("plan is missing source or target paths")
-	}
-	return doc, nil
 }

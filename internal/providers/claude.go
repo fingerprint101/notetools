@@ -1,4 +1,4 @@
-package claude
+package providers
 
 import (
 	"bytes"
@@ -10,17 +10,17 @@ import (
 	"github.com/fingerprint/notetools/internal/llm"
 )
 
-type Client struct{}
+type ClaudeClient struct{}
 
-func New() *Client {
-	return &Client{}
+func NewClaude() *ClaudeClient {
+	return &ClaudeClient{}
 }
 
-func (c *Client) Name() string {
+func (c *ClaudeClient) Name() string {
 	return "claude"
 }
 
-func run(ctx context.Context, model, prompt string) (string, error) {
+func runClaude(ctx context.Context, model, prompt string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--model", model)
 
 	var stdout, stderr bytes.Buffer
@@ -49,7 +49,7 @@ func promptWithImages(prompt string, imagePaths []string) string {
 	return b.String()
 }
 
-func runWithImages(ctx context.Context, model, prompt string) (string, error) {
+func runClaudeWithImages(ctx context.Context, model, prompt string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--model", model, "--allowedTools", "Read")
 
 	var stdout, stderr bytes.Buffer
@@ -65,24 +65,24 @@ func runWithImages(ctx context.Context, model, prompt string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-func (c *Client) Generate(ctx context.Context, model, prompt string) (string, error) {
-	return run(ctx, model, prompt)
+func (c *ClaudeClient) Generate(ctx context.Context, model, prompt string) (string, error) {
+	return runClaude(ctx, model, prompt)
 }
 
-func (c *Client) GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error) {
+func (c *ClaudeClient) GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error) {
 	return c.GenerateWithImages(ctx, model, prompt, []string{imagePath})
 }
 
-func (c *Client) GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error) {
-	return runWithImages(ctx, model, promptWithImages(prompt, imagePaths))
+func (c *ClaudeClient) GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error) {
+	return runClaudeWithImages(ctx, model, promptWithImages(prompt, imagePaths))
 }
 
-func (c *Client) GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error) {
-	raw, err := run(ctx, model, prompt+llm.JSONPromptSuffix(schema))
+func (c *ClaudeClient) GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error) {
+	raw, err := runClaude(ctx, model, prompt+llm.JSONPromptSuffix(schema))
 	if err != nil {
 		return "", err
 	}
 	return llm.ExtractJSON(raw), nil
 }
 
-var _ llm.Provider = (*Client)(nil)
+var _ llm.Provider = (*ClaudeClient)(nil)

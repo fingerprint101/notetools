@@ -1,4 +1,4 @@
-package clean
+package notes
 
 import (
 	"context"
@@ -10,21 +10,21 @@ import (
 	"github.com/fingerprint/notetools/internal/llm"
 )
 
-type Section struct {
+type TranscriptSection struct {
 	Title     string
 	StartLine int
 	EndLine   int
 	Content   string
 }
 
-type sectionRange struct {
+type transcriptSectionRange struct {
 	Title     string `json:"title"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
 }
 
-type sectionsResponse struct {
-	Sections []sectionRange `json:"sections"`
+type transcriptSectionsResponse struct {
+	Sections []transcriptSectionRange `json:"sections"`
 }
 
 type cleanedResponse struct {
@@ -62,7 +62,7 @@ var cleanSectionSchema = map[string]any{
 	"required": []string{"cleaned_content"},
 }
 
-func SectionTranscript(ctx context.Context, p llm.Provider, model, transcript string) ([]Section, error) {
+func SectionTranscript(ctx context.Context, p llm.Provider, model, transcript string) ([]TranscriptSection, error) {
 	units := splitTranscriptUnits(transcript)
 	numberedTranscript := withUnitNumbers(units)
 	unitCount := len(units)
@@ -103,7 +103,7 @@ TRANSCRIPT>>>
 		return nil, fmt.Errorf("sectioning failed: %w", err)
 	}
 
-	var resp sectionsResponse
+	var resp transcriptSectionsResponse
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		return nil, fmt.Errorf("failed to parse sections JSON: %w", err)
 	}
@@ -112,7 +112,7 @@ TRANSCRIPT>>>
 		return nil, fmt.Errorf("model returned an empty section list")
 	}
 
-	sections := make([]Section, 0, len(resp.Sections))
+	sections := make([]TranscriptSection, 0, len(resp.Sections))
 	nextStart := 1
 
 	for i := range resp.Sections {
@@ -129,7 +129,7 @@ TRANSCRIPT>>>
 		}
 
 		content := strings.TrimSpace(strings.Join(units[sec.StartLine-1:sec.EndLine], "\n"))
-		sections = append(sections, Section{
+		sections = append(sections, TranscriptSection{
 			Title:     sec.Title,
 			StartLine: sec.StartLine,
 			EndLine:   sec.EndLine,
@@ -190,7 +190,7 @@ SECTION>>>
 	return cleaned, nil
 }
 
-func RenderMarkdown(docTitle string, sections []Section) string {
+func RenderCleanMarkdown(docTitle string, sections []TranscriptSection) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", docTitle)
 	for _, s := range sections {
@@ -260,14 +260,17 @@ func splitParagraphSentences(paragraph string) []string {
 		}
 	}
 
-	flush()
+	if strings.TrimSpace(current.String()) != "" {
+		flush()
+	}
+
 	return units
 }
 
 func withUnitNumbers(units []string) string {
 	var b strings.Builder
 	for i, unit := range units {
-		fmt.Fprintf(&b, "%d\t%s\n", i+1, unit)
+		fmt.Fprintf(&b, "[%d] %s\n", i+1, unit)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

@@ -1,4 +1,4 @@
-package pdf
+package docs
 
 import (
 	"fmt"
@@ -9,8 +9,6 @@ import (
 	"github.com/gen2brain/go-fitz"
 )
 
-// RenderPages renders each page of a PDF to a PNG file in a temp directory.
-// Returns the paths to the PNG files. Caller is responsible for cleanup.
 func RenderPages(pdfPath string, dpi int) ([]string, error) {
 	doc, err := fitz.New(pdfPath)
 	if err != nil {

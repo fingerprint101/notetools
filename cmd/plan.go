@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fingerprint/notetools/internal/plan"
+	"github.com/fingerprint/notetools/internal/notes"
 	"github.com/spf13/cobra"
 )
 
@@ -66,7 +66,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	p, model := providerFor("plan")
 	fmt.Fprintf(os.Stderr, "Planning with %s (%s)...\n", p.Name(), model)
 
-	mappings, err := plan.Run(cmd.Context(), p, model, string(content1), string(content2))
+	mappings, err := notes.Plan(cmd.Context(), p, model, string(content1), string(content2))
 	if err != nil {
 		return err
 	}
@@ -80,8 +80,8 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolve target path: %w", err)
 	}
 
-	doc := plan.NewDocument(absPath1, absPath2, mappings)
-	output, err := plan.Render(doc)
+	doc := notes.NewPlanDocument(absPath1, absPath2, mappings)
+	output, err := notes.RenderPlan(doc)
 	if err != nil {
 		return err
 	}
