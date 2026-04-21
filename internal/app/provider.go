@@ -5,7 +5,7 @@ import (
 	"github.com/fingerprint/notetools/internal/providers"
 )
 
-var knownProviders = []string{"claude", "codex", "opencode"}
+var knownProviders = []string{"claude", "codex", "gemini", "opencode"}
 
 func ProviderFor(cfg Config, cmdName string) (llm.Provider, string) {
 	cc := GetCommandConfig(cfg, cmdName)
@@ -14,6 +14,8 @@ func ProviderFor(cfg Config, cmdName string) (llm.Provider, string) {
 		return providers.NewClaude(), cc.Model
 	case "codex":
 		return providers.NewCodex(), cc.Model
+	case "gemini":
+		return providers.NewGemini(), cc.Model
 	case "opencode":
 		return providers.NewOpenCode(), cc.Model
 	default:

@@ -13,4 +13,4 @@ This is a Go 1.21+ project. Format all edited Go files with `gofmt -w`. Follow s
 Recent commits use short, imperative summaries such as `merge planning command` and `improved merge command with diff view`. Keep commit subjects concise and descriptive. PRs should explain the user-visible change, note any prompt or provider behavior changes, include the verification commands you ran, and attach sample output when formatting or generated Markdown changes.
 
 ## Configuration & Provider Notes
-Runtime configuration is stored in `~/.config/nt/config.json`. Do not commit secrets, API keys, or machine-specific provider settings. When changing provider adapters, preserve consistent behavior across `opencode`, `claude`, and `codex`, especially for JSON output and image handling.
+Runtime configuration is stored in `~/.config/nt/config.json`. Do not commit secrets, API keys, or machine-specific provider settings. When changing provider adapters, preserve consistent behavior across `opencode`, `claude`, `codex`, and `gemini`, especially for JSON output and image handling.
