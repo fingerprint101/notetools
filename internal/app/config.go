@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 type CommandConfig struct {
@@ -16,14 +17,17 @@ type Config struct {
 	Commands map[string]CommandConfig `json:"commands"`
 }
 
+var defaultCommandConfigs = map[string]CommandConfig{
+	"clean":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+	"execute": {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+	"merge":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+	"explain": {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+	"plan":    {Provider: "opencode", Model: "opencode-go/glm-5.1"},
+}
+
 func Defaults() Config {
 	return Config{
-		Commands: map[string]CommandConfig{
-			"clean":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
-			"merge":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
-			"explain": {Provider: "opencode", Model: "opencode-go/glm-5.1"},
-			"plan":    {Provider: "opencode", Model: "opencode-go/glm-5.1"},
-		},
+		Commands: cloneCommandConfigs(defaultCommandConfigs),
 	}
 }
 
@@ -96,4 +100,26 @@ func GetCommandConfig(cfg Config, cmdName string) CommandConfig {
 		return def
 	}
 	return CommandConfig{Provider: "opencode", Model: ""}
+}
+
+func IsKnownCommand(cmdName string) bool {
+	_, ok := defaultCommandConfigs[cmdName]
+	return ok
+}
+
+func KnownCommandNames() []string {
+	names := make([]string, 0, len(defaultCommandConfigs))
+	for name := range defaultCommandConfigs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func cloneCommandConfigs(src map[string]CommandConfig) map[string]CommandConfig {
+	dst := make(map[string]CommandConfig, len(src))
+	for name, cfg := range src {
+		dst[name] = cfg
+	}
+	return dst
 }

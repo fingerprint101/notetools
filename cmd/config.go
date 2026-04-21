@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/fingerprint/notetools/internal/app"
 	"github.com/spf13/cobra"
@@ -34,14 +35,12 @@ Providers:
 
 Examples:
   nt config set clean opencode opencode-go/glm-5.1
+  nt config set execute opencode opencode-go/glm-5.1
   nt config set merge claude sonnet
   nt config set explain codex gpt-5-codex`,
 	Args: cobra.ExactArgs(3),
 	RunE: runConfigSet,
 }
-
-var validCmds = map[string]bool{"clean": true, "merge": true, "explain": true, "plan": true}
-var validProviders = map[string]bool{"opencode": true, "claude": true, "codex": true}
 
 func init() {
 	configCmd.AddCommand(configShowCmd)
@@ -55,14 +54,11 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	names := make([]string, 0, len(cfg.Commands))
-	for n := range cfg.Commands {
-		names = append(names, n)
-	}
+	names := app.KnownCommandNames()
 	sort.Strings(names)
 
 	for _, n := range names {
-		cc := cfg.Commands[n]
+		cc := app.GetCommandConfig(cfg, n)
 		fmt.Printf("  %-10s  provider=%-10s  model=%s\n", n, cc.Provider, cc.Model)
 	}
 
@@ -72,11 +68,11 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 func runConfigSet(cmd *cobra.Command, args []string) error {
 	cmdName, provider, model := args[0], args[1], args[2]
 
-	if !validCmds[cmdName] {
-		return fmt.Errorf("unknown command %q: must be one of clean, merge, explain", cmdName)
+	if !app.IsKnownCommand(cmdName) {
+		return fmt.Errorf("unknown command %q: must be one of %s", cmdName, strings.Join(app.KnownCommandNames(), ", "))
 	}
-	if !validProviders[provider] {
-		return fmt.Errorf("unknown provider %q: must be one of opencode, claude, codex", provider)
+	if !app.IsKnownProvider(provider) {
+		return fmt.Errorf("unknown provider %q: must be one of %s", provider, strings.Join(app.KnownProviders(), ", "))
 	}
 
 	cfg, err := app.Load()

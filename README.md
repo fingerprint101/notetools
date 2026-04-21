@@ -50,6 +50,7 @@ Each command has a configurable provider/model. Defaults use `opencode-go/glm-5.
 ```bash
 nt config show
 nt config set clean opencode opencode-go/glm-5.1
+nt config set execute opencode opencode-go/glm-5.1
 nt config set merge claude sonnet
 nt config set explain codex gpt-5-codex
 ```

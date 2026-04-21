@@ -39,7 +39,7 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse plan file: %w", err)
 	}
 
-	p, model := providerFor("merge")
+	p, model := providerFor("execute")
 	fmt.Fprintf(os.Stderr, "Executing plan %s with %s (%s)...\n", filepath.Base(planPath), p.Name(), model)
 
 	err = notes.ExecutePlan(cmd.Context(), p, model, doc, executeInstructions, func(progress notes.ExecuteProgress) {
