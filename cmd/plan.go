@@ -11,6 +11,7 @@ import (
 )
 
 var planOutput string
+var planTokenBudget int
 
 var planCmd = &cobra.Command{
 	Use:   "plan <source.md> <target.md>",
@@ -29,6 +30,7 @@ The plan is written to a JSON file (default: plan-<source>-<target>.json).`,
 
 func init() {
 	planCmd.Flags().StringVarP(&planOutput, "output", "o", "", "output file path (default: plan-<source>-<target>.json)")
+	planCmd.Flags().IntVar(&planTokenBudget, "token-budget", notes.DefaultPlanTokenBudget, "estimated prompt token budget for each planning request")
 	rootCmd.AddCommand(planCmd)
 }
 
@@ -66,7 +68,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	p, model := providerFor("plan")
 	fmt.Fprintf(os.Stderr, "Planning with %s (%s)...\n", p.Name(), model)
 
-	mappings, err := notes.Plan(cmd.Context(), p, model, string(content1), string(content2))
+	mappings, err := notes.PlanWithTokenBudget(cmd.Context(), p, model, string(content1), string(content2), planTokenBudget)
 	if err != nil {
 		return err
 	}

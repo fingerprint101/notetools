@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/fingerprint/notetools/internal/llm"
@@ -28,6 +27,7 @@ type PlanDocument struct {
 }
 
 const planDocumentVersion = 1
+const DefaultPlanTokenBudget = 60000
 
 type noteSection struct {
 	Title     string
@@ -37,10 +37,11 @@ type noteSection struct {
 }
 
 type sectionMatch struct {
-	File1Index            int  `json:"file1_index"`
-	Present               bool `json:"present"`
-	File2Index            int  `json:"file2_index"`
-	InsertAfterFile2Index int  `json:"insert_after_file2_index"`
+	File1Index      int  `json:"file1_index"`
+	Present         bool `json:"present"`
+	File2Start      int  `json:"file2_start"`
+	File2End        int  `json:"file2_end"`
+	InsertAfterLine int  `json:"insert_after_line"`
 }
 
 type matchResponse struct {
@@ -58,12 +59,13 @@ var matchSchema = map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"file1_index":              map[string]any{"type": "integer", "minimum": 0},
-					"present":                  map[string]any{"type": "boolean"},
-					"file2_index":              map[string]any{"type": "integer", "minimum": 0},
-					"insert_after_file2_index": map[string]any{"type": "integer", "minimum": 0},
+					"file1_index":       map[string]any{"type": "integer", "minimum": 0},
+					"present":           map[string]any{"type": "boolean"},
+					"file2_start":       map[string]any{"type": "integer", "minimum": 0},
+					"file2_end":         map[string]any{"type": "integer", "minimum": 0},
+					"insert_after_line": map[string]any{"type": "integer", "minimum": 0},
 				},
-				"required": []string{"file1_index", "present", "file2_index", "insert_after_file2_index"},
+				"required": []string{"file1_index", "present", "file2_start", "file2_end", "insert_after_line"},
 			},
 		},
 	},
@@ -113,101 +115,127 @@ func parseNoteSections(content string) []noteSection {
 	return out
 }
 
-func snippet(lines []string, sec noteSection, maxChars int) string {
+func sectionText(lines []string, sec noteSection) string {
+	if sec.StartLine <= 0 || sec.StartLine > len(lines) || sec.EndLine < sec.StartLine {
+		return ""
+	}
+	end := sec.EndLine
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[sec.StartLine-1:end], "\n")
+}
+
+func formatNumberedLines(content string) string {
+	lines := strings.Split(content, "\n")
 	var b strings.Builder
-	for li := sec.StartLine + 1; li <= sec.EndLine && li <= len(lines); li++ {
-		line := strings.TrimSpace(lines[li-1])
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if b.Len() > 0 {
-			b.WriteByte(' ')
-		}
-		b.WriteString(line)
-		if b.Len() >= maxChars {
-			s := b.String()
-			return s[:maxChars] + "..."
-		}
+	for i, line := range lines {
+		fmt.Fprintf(&b, "%04d %s\n", i+1, line)
 	}
 	return b.String()
 }
 
-func formatSections(label string, secs []noteSection, lines []string, snippetChars int) string {
+func formatSourceBatch(secs []indexedSection, lines []string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s SECTIONS (%d total):\n", label, len(secs))
-	for i, s := range secs {
-		fmt.Fprintf(&b, "[%d] (H%d, lines %d-%d) %s\n", i, s.Level, s.StartLine, s.EndLine, s.Title)
-		snip := snippet(lines, s, snippetChars)
-		if snip != "" {
-			fmt.Fprintf(&b, "    > %s\n", snip)
-		}
+	for _, s := range secs {
+		fmt.Fprintf(&b, "SOURCE SECTION file1_index=%d, H%d, lines %d-%d, title=%q\n", s.Index, s.Level, s.StartLine, s.EndLine, s.Title)
+		b.WriteString(sectionText(lines, s.noteSection))
+		b.WriteString("\n\n")
 	}
 	return b.String()
 }
 
-func snippetBudget(totalSections int) int {
-	if totalSections <= 0 {
+func estimateTokens(text string) int {
+	if text == "" {
 		return 0
 	}
+	return (len(text) + 3) / 4
+}
 
-	const (
-		totalBudget = 4000
-		minChars    = 80
-		maxChars    = 220
-	)
-
-	perSection := int(math.Floor(float64(totalBudget) / float64(totalSections)))
-	switch {
-	case perSection < minChars:
-		return minChars
-	case perSection > maxChars:
-		return maxChars
-	default:
-		return perSection
-	}
+type indexedSection struct {
+	noteSection
+	Index int
 }
 
 func Plan(ctx context.Context, p llm.Provider, model, file1Content, file2Content string) ([]Mapping, error) {
+	return PlanWithTokenBudget(ctx, p, model, file1Content, file2Content, DefaultPlanTokenBudget)
+}
+
+func PlanWithTokenBudget(ctx context.Context, p llm.Provider, model, file1Content, file2Content string, tokenBudget int) ([]Mapping, error) {
+	if tokenBudget <= 0 {
+		tokenBudget = DefaultPlanTokenBudget
+	}
+
 	s1 := parseNoteSections(file1Content)
 	if len(s1) == 0 {
 		return nil, fmt.Errorf("no ## or ### sections found in source file")
 	}
-	s2 := parseNoteSections(file2Content)
 
 	lines1 := strings.Split(file1Content, "\n")
-	lines2 := strings.Split(file2Content, "\n")
-
-	maxF1 := len(s1) - 1
-	maxF2 := len(s2) - 1
-	if maxF2 < 0 {
-		maxF2 = 0
+	numberedTarget := formatNumberedLines(file2Content)
+	basePrompt := buildPlanPrompt(numberedTarget, "")
+	sourceBudget := tokenBudget - estimateTokens(basePrompt) - 1000
+	if sourceBudget < 1 {
+		sourceBudget = 1
 	}
-	snippetChars := snippetBudget(len(s1) + len(s2))
 
-	prompt := fmt.Sprintf(`You are a note-planning assistant. You are given the section outlines of two Markdown notes. For EACH section in FILE 1, decide whether FILE 2 covers the same topic.
+	var allMatches []sectionMatch
+	for _, batch := range planBatches(s1, lines1, sourceBudget) {
+		prompt := buildPlanPrompt(numberedTarget, formatSourceBatch(batch, lines1))
+		raw, err := p.GenerateJSON(ctx, model, prompt, matchSchema)
+		if err != nil {
+			return nil, fmt.Errorf("plan generation failed: %w", err)
+		}
 
-Output one match record per FILE 1 section:
-- file1_index: index of the FILE 1 section (0..%d)
-- present: true if FILE 2 covers the same topic (even if worded or organised differently); false if absent
-- when present is true: file2_index = matching FILE 2 section index (0..%d). Set insert_after_file2_index to 0 (it is ignored).
-- when present is false: insert_after_file2_index = the FILE 2 section index AFTER which the missing content fits best logically. Use the index of the LAST FILE 2 section to mean "append at end". Set file2_index to 0 (it is ignored).
+		var resp matchResponse
+		if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+			return nil, fmt.Errorf("failed to parse plan JSON: %w", err)
+		}
+		allMatches = append(allMatches, resp.Matches...)
+	}
 
-Match by topic, not by heading wording. A H2 in FILE 1 may correspond to a H2 in FILE 2 even if their titles differ. Output every FILE 1 section exactly once, in order. Reply with valid JSON only.
+	return toMappings(matchResponse{Matches: allMatches}, s1, len(strings.Split(file2Content, "\n"))), nil
+}
 
+func buildPlanPrompt(numberedTarget, sourceBatch string) string {
+	return fmt.Sprintf(`You are a note-planning assistant. You are given the full destination Markdown note with authoritative line numbers, plus one or more full source sections. For EACH source section, decide whether the destination note already covers the same topic.
+
+Output one match record per source section:
+- file1_index: the source section index shown in the section header.
+- present: true if the destination covers the same topic, even if worded or organised differently.
+- when present is true: file2_start and file2_end are the best destination line range to merge into. Set insert_after_line to 0.
+- when present is false: insert_after_line is the destination line after which the missing section fits best logically. Use the final destination line to append at the end. Use 0 only when no specific destination line fits, which will also append at the end. Set file2_start and file2_end to 0.
+
+Match by semantic topic, not by heading wording. A source section may map to any destination line range, including a range inside a broad or poorly named destination section. Destination line numbers are authoritative. Output every source section exactly once, in order. Reply with valid JSON only.
+
+DESTINATION NOTE:
 %s
-%s`, maxF1, maxF2, formatSections("FILE 1", s1, lines1, snippetChars), formatSections("FILE 2", s2, lines2, snippetChars))
 
-	raw, err := p.GenerateJSON(ctx, model, prompt, matchSchema)
-	if err != nil {
-		return nil, fmt.Errorf("plan generation failed: %w", err)
+SOURCE SECTIONS:
+%s`, numberedTarget, sourceBatch)
+}
+
+func planBatches(secs []noteSection, lines []string, sourceBudget int) [][]indexedSection {
+	var batches [][]indexedSection
+	var current []indexedSection
+	currentTokens := 0
+
+	for i, sec := range secs {
+		indexed := indexedSection{noteSection: sec, Index: i}
+		sectionTokens := estimateTokens(formatSourceBatch([]indexedSection{indexed}, lines))
+		if len(current) > 0 && currentTokens+sectionTokens > sourceBudget {
+			batches = append(batches, current)
+			current = nil
+			currentTokens = 0
+		}
+		current = append(current, indexed)
+		currentTokens += sectionTokens
 	}
 
-	var resp matchResponse
-	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse plan JSON: %w", err)
+	if len(current) > 0 {
+		batches = append(batches, current)
 	}
-
-	return toMappings(resp, s1, s2), nil
+	return batches
 }
 
 func NewPlanDocument(sourcePath, targetPath string, mappings []Mapping) PlanDocument {
@@ -241,7 +269,7 @@ func ParsePlan(content string) (PlanDocument, error) {
 	return doc, nil
 }
 
-func toMappings(resp matchResponse, s1, s2 []noteSection) []Mapping {
+func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int) []Mapping {
 	seen := make(map[int]bool, len(s1))
 	out := make([]Mapping, 0, len(s1))
 
@@ -250,7 +278,7 @@ func toMappings(resp matchResponse, s1, s2 []noteSection) []Mapping {
 			continue
 		}
 		seen[m.File1Index] = true
-		out = append(out, mappingFor(m, s1, s2))
+		out = append(out, mappingFor(m, s1, targetLineCount))
 	}
 
 	for i, sec := range s1 {
@@ -269,7 +297,7 @@ func toMappings(resp matchResponse, s1, s2 []noteSection) []Mapping {
 	return out
 }
 
-func mappingFor(m sectionMatch, s1, s2 []noteSection) Mapping {
+func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int) Mapping {
 	sec := s1[m.File1Index]
 	mp := Mapping{
 		Title:          sec.Title,
@@ -278,19 +306,24 @@ func mappingFor(m sectionMatch, s1, s2 []noteSection) Mapping {
 		PresentInFile2: m.Present,
 	}
 	if m.Present {
-		if m.File2Index >= 0 && m.File2Index < len(s2) {
-			mp.File2Start = s2[m.File2Index].StartLine
-			mp.File2End = s2[m.File2Index].EndLine
+		if m.File2Start > 0 && m.File2End >= m.File2Start {
+			mp.File2Start = clampLine(m.File2Start, targetLineCount)
+			mp.File2End = clampLine(m.File2End, targetLineCount)
 		}
 		return mp
 	}
-	switch {
-	case len(s2) == 0:
-		mp.InsertAfterLine = 0
-	case m.InsertAfterFile2Index >= len(s2)-1:
-		mp.InsertAfterLine = 0
-	default:
-		mp.InsertAfterLine = s2[m.InsertAfterFile2Index].EndLine
+	if m.InsertAfterLine > 0 {
+		mp.InsertAfterLine = clampLine(m.InsertAfterLine, targetLineCount)
 	}
 	return mp
+}
+
+func clampLine(line, maxLine int) int {
+	if line < 1 {
+		return 1
+	}
+	if maxLine > 0 && line > maxLine {
+		return maxLine
+	}
+	return line
 }
