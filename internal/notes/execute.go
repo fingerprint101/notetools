@@ -21,16 +21,6 @@ type ExecuteProgress struct {
 	PresentInDst bool
 }
 
-type lineEdit struct {
-	kind          string
-	origStart     int
-	origEnd       int
-	currentStart  int
-	currentEnd    int
-	insertAfter   int
-	insertedLines int
-}
-
 func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocument, instructions string, notify func(ExecuteProgress)) error {
 	sourceData, err := os.ReadFile(doc.SourcePath)
 	if err != nil {
@@ -43,9 +33,9 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 
 	sourceLines := strings.Split(string(sourceData), "\n")
 	targetLines := strings.Split(string(targetData), "\n")
-	edits := make([]lineEdit, 0, len(doc.Mappings))
+	mappings := append([]Mapping(nil), doc.Mappings...)
 
-	for i, mapping := range doc.Mappings {
+	for i, mapping := range mappings {
 		sourceSnippet, err := sliceLines(sourceLines, mapping.File1Start, mapping.File1End)
 		if err != nil {
 			return fmt.Errorf("source section %q: %w", mapping.Title, err)
@@ -53,7 +43,7 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 
 		progress := ExecuteProgress{
 			Step:         i + 1,
-			Total:        len(doc.Mappings),
+			Total:        len(mappings),
 			Title:        mapping.Title,
 			SourceStart:  mapping.File1Start,
 			SourceEnd:    mapping.File1End,
@@ -62,8 +52,8 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 		}
 
 		if mapping.PresentInFile2 {
-			start := resolveLine(edits, mapping.File2Start, false)
-			end := resolveLine(edits, mapping.File2End, true)
+			start := mapping.File2Start
+			end := mapping.File2End
 			progress.TargetStart = start
 			progress.TargetEnd = end
 			if notify != nil {
@@ -81,13 +71,14 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 			}
 
 			replLines := strings.Split(merged, "\n")
-			shiftTrackedReplacementsAfterReplace(edits, start, end, len(replLines))
+			replacementEnd := start + len(replLines) - 1
+			delta := len(replLines) - (end - start + 1)
 			targetLines = replaceRange(targetLines, start, end, replLines)
-			upsertReplaceEdit(&edits, mapping.File2Start, mapping.File2End, start, start+len(replLines)-1)
+			recalculateAfterReplace(mappings[i+1:], start, end, replacementEnd, delta)
 		} else {
 			insertAfter := len(targetLines)
 			if mapping.InsertAfterLine > 0 {
-				insertAfter = resolveInsertAfter(edits, mapping.InsertAfterLine)
+				insertAfter = mapping.InsertAfterLine
 			}
 			progress.InsertAfter = insertAfter
 			if notify != nil {
@@ -100,13 +91,8 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 			}
 
 			insertLines := strings.Split(merged, "\n")
-			shiftTrackedReplacementsAfterInsert(edits, insertAfter, len(insertLines))
 			targetLines = insertRange(targetLines, insertAfter, insertLines)
-			edits = append(edits, lineEdit{
-				kind:          "insert",
-				insertAfter:   mapping.InsertAfterLine,
-				insertedLines: len(insertLines),
-			})
+			recalculateAfterInsert(mappings[i+1:], insertAfter, len(insertLines))
 		}
 
 		if err := os.WriteFile(doc.TargetPath, []byte(strings.Join(targetLines, "\n")), 0o644); err != nil {
@@ -125,111 +111,6 @@ func buildInsertInstructions(extra string) string {
 	return base + " " + extra
 }
 
-func resolveLine(edits []lineEdit, original int, endOfRange bool) int {
-	line := original
-	for _, edit := range edits {
-		switch edit.kind {
-		case "replace":
-			if original < edit.origStart {
-				continue
-			}
-			if original > edit.origEnd {
-				line += (edit.currentEnd - edit.currentStart + 1) - (edit.origEnd - edit.origStart + 1)
-				continue
-			}
-			if endOfRange {
-				return edit.currentEnd
-			}
-			return edit.currentStart
-		case "insert":
-			if original > edit.insertAfter {
-				line += edit.insertedLines
-			}
-		}
-	}
-	return line
-}
-
-func resolveInsertAfter(edits []lineEdit, original int) int {
-	line := original
-	for _, edit := range edits {
-		switch edit.kind {
-		case "replace":
-			if original < edit.origStart {
-				continue
-			}
-			if original > edit.origEnd {
-				line += (edit.currentEnd - edit.currentStart + 1) - (edit.origEnd - edit.origStart + 1)
-				continue
-			}
-			return edit.currentEnd
-		case "insert":
-			if original >= edit.insertAfter {
-				line += edit.insertedLines
-			}
-		}
-	}
-	return line
-}
-
-func upsertReplaceEdit(edits *[]lineEdit, origStart, origEnd, currentStart, currentEnd int) {
-	for i := range *edits {
-		edit := &(*edits)[i]
-		if edit.kind == "replace" && edit.origStart == origStart && edit.origEnd == origEnd {
-			edit.currentStart = currentStart
-			edit.currentEnd = currentEnd
-			return
-		}
-	}
-
-	*edits = append(*edits, lineEdit{
-		kind:         "replace",
-		origStart:    origStart,
-		origEnd:      origEnd,
-		currentStart: currentStart,
-		currentEnd:   currentEnd,
-	})
-}
-
-func shiftTrackedReplacementsAfterReplace(edits []lineEdit, start, end, replacementLines int) {
-	delta := replacementLines - (end - start + 1)
-	if delta == 0 {
-		return
-	}
-
-	for i := range edits {
-		edit := &edits[i]
-		if edit.kind != "replace" {
-			continue
-		}
-		if edit.currentStart > end {
-			edit.currentStart += delta
-			edit.currentEnd += delta
-		}
-	}
-}
-
-func shiftTrackedReplacementsAfterInsert(edits []lineEdit, after, insertedLines int) {
-	if insertedLines == 0 {
-		return
-	}
-
-	for i := range edits {
-		edit := &edits[i]
-		if edit.kind != "replace" {
-			continue
-		}
-		if edit.currentStart > after {
-			edit.currentStart += insertedLines
-			edit.currentEnd += insertedLines
-			continue
-		}
-		if edit.currentEnd > after {
-			edit.currentEnd += insertedLines
-		}
-	}
-}
-
 func sliceLines(lines []string, start, end int) (string, error) {
 	if start <= 0 || end <= 0 {
 		return "", fmt.Errorf("invalid line range %d-%d", start, end)
@@ -244,6 +125,87 @@ func sliceLines(lines []string, start, end int) (string, error) {
 		return "", fmt.Errorf("invalid line range %d-%d", start, end)
 	}
 	return strings.Join(lines[start-1:end], "\n"), nil
+}
+
+func recalculateAfterReplace(mappings []Mapping, start, end, replacementEnd, delta int) {
+	for i := range mappings {
+		mapping := &mappings[i]
+		if mapping.PresentInFile2 {
+			mapping.File2Start = recalculateRangeStartAfterReplace(mapping.File2Start, start, end, delta)
+			mapping.File2End = recalculateRangeEndAfterReplace(mapping.File2End, start, end, replacementEnd, delta)
+			if mapping.File2End < mapping.File2Start {
+				mapping.File2End = mapping.File2Start
+			}
+			continue
+		}
+
+		if mapping.InsertAfterLine == 0 {
+			continue
+		}
+		mapping.InsertAfterLine = recalculatePointAfterReplace(mapping.InsertAfterLine, start, end, replacementEnd, delta)
+	}
+}
+
+func recalculateRangeStartAfterReplace(line, start, end, delta int) int {
+	switch {
+	case line < start:
+		return line
+	case line <= end:
+		return start
+	default:
+		return line + delta
+	}
+}
+
+func recalculateRangeEndAfterReplace(line, start, end, replacementEnd, delta int) int {
+	switch {
+	case line < start:
+		return line
+	case line <= end:
+		return replacementEnd
+	default:
+		return line + delta
+	}
+}
+
+func recalculatePointAfterReplace(line, start, end, replacementEnd, delta int) int {
+	switch {
+	case line < start:
+		return line
+	case line <= end:
+		return replacementEnd
+	default:
+		return line + delta
+	}
+}
+
+func recalculateAfterInsert(mappings []Mapping, after, insertedLines int) {
+	if insertedLines == 0 {
+		return
+	}
+
+	for i := range mappings {
+		mapping := &mappings[i]
+		if mapping.PresentInFile2 {
+			switch {
+			case mapping.File2End <= after:
+				continue
+			case mapping.File2Start > after:
+				mapping.File2Start += insertedLines
+				mapping.File2End += insertedLines
+			default:
+				mapping.File2End += insertedLines
+			}
+			continue
+		}
+
+		if mapping.InsertAfterLine == 0 {
+			continue
+		}
+		if mapping.InsertAfterLine >= after {
+			mapping.InsertAfterLine += insertedLines
+		}
+	}
 }
 
 func replaceRange(lines []string, start, end int, replacement []string) []string {
