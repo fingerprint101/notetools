@@ -27,7 +27,7 @@ func (c *GeminiClient) Name() string {
 }
 
 func runGemini(ctx context.Context, model, prompt string) (string, error) {
-	args := []string{"-p", prompt, "--output-format", "json"}
+	args := []string{"--output-format", "json"}
 	if strings.TrimSpace(model) != "" {
 		args = append(args, "--model", model)
 	}
@@ -37,6 +37,7 @@ func runGemini(ctx context.Context, model, prompt string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.Stdin = strings.NewReader(prompt)
 
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
