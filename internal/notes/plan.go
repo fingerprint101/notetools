@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/fingerprint/notetools/internal/llm"
@@ -172,8 +173,10 @@ func PlanWithTokenBudget(ctx context.Context, p llm.Provider, model, file1Conten
 	}
 
 	lines1 := strings.Split(file1Content, "\n")
+	lines2 := strings.Split(file2Content, "\n")
+	insertAnchors := safeInsertAnchors(lines2)
 	numberedTarget := formatNumberedLines(file2Content)
-	basePrompt := buildPlanPrompt(numberedTarget, "")
+	basePrompt := buildPlanPrompt(numberedTarget, formatInsertAnchors(lines2, insertAnchors), "")
 	sourceBudget := tokenBudget - estimateTokens(basePrompt) - 1000
 	if sourceBudget < 1 {
 		sourceBudget = 1
@@ -181,7 +184,7 @@ func PlanWithTokenBudget(ctx context.Context, p llm.Provider, model, file1Conten
 
 	var allMatches []sectionMatch
 	for _, batch := range planBatches(s1, lines1, sourceBudget) {
-		prompt := buildPlanPrompt(numberedTarget, formatSourceBatch(batch, lines1))
+		prompt := buildPlanPrompt(numberedTarget, formatInsertAnchors(lines2, insertAnchors), formatSourceBatch(batch, lines1))
 		raw, err := p.GenerateJSON(ctx, model, prompt, matchSchema)
 		if err != nil {
 			return nil, fmt.Errorf("plan generation failed: %w", err)
@@ -194,25 +197,28 @@ func PlanWithTokenBudget(ctx context.Context, p llm.Provider, model, file1Conten
 		allMatches = append(allMatches, resp.Matches...)
 	}
 
-	return toMappings(matchResponse{Matches: allMatches}, s1, len(strings.Split(file2Content, "\n"))), nil
+	return toMappings(matchResponse{Matches: allMatches}, s1, len(lines2), insertAnchors), nil
 }
 
-func buildPlanPrompt(numberedTarget, sourceBatch string) string {
+func buildPlanPrompt(numberedTarget, insertAnchors, sourceBatch string) string {
 	return fmt.Sprintf(`You are a note-planning assistant. You are given the full destination Markdown note with authoritative line numbers, plus one or more full source sections. For EACH source section, decide whether the destination note already covers the same topic.
 
 Output one match record per source section:
 - file1_index: the source section index shown in the section header.
 - present: true if the destination covers the same topic, even if worded or organised differently.
 - when present is true: file2_start and file2_end are the best destination line range to merge into. Set insert_after_line to 0.
-- when present is false: insert_after_line is the destination line after which the missing section fits best logically. Use the final destination line to append at the end. Use 0 only when no specific destination line fits, which will also append at the end. Set file2_start and file2_end to 0.
+- when present is false: insert_after_line is the destination line after which the missing section fits best logically. Choose insert_after_line only from SAFE INSERT_AFTER_LINE VALUES below. Never insert in the middle of a paragraph, formula, list item, or explanation. Use the final destination line to append at the end. Use 0 only when no specific destination line fits, which will also append at the end. Set file2_start and file2_end to 0.
 
 Match by semantic topic, not by heading wording. A source section may map to any destination line range, including a range inside a broad or poorly named destination section. Destination line numbers are authoritative. Output every source section exactly once, in order. Reply with valid JSON only.
 
 DESTINATION NOTE:
 %s
 
+SAFE INSERT_AFTER_LINE VALUES:
+%s
+
 SOURCE SECTIONS:
-%s`, numberedTarget, sourceBatch)
+%s`, numberedTarget, insertAnchors, sourceBatch)
 }
 
 func planBatches(secs []noteSection, lines []string, sourceBudget int) [][]indexedSection {
@@ -269,7 +275,7 @@ func ParsePlan(content string) (PlanDocument, error) {
 	return doc, nil
 }
 
-func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int) []Mapping {
+func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int, insertAnchors []int) []Mapping {
 	seen := make(map[int]bool, len(s1))
 	out := make([]Mapping, 0, len(s1))
 
@@ -278,7 +284,7 @@ func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int) []Map
 			continue
 		}
 		seen[m.File1Index] = true
-		out = append(out, mappingFor(m, s1, targetLineCount))
+		out = append(out, mappingFor(m, s1, targetLineCount, insertAnchors))
 	}
 
 	for i, sec := range s1 {
@@ -297,7 +303,7 @@ func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int) []Map
 	return out
 }
 
-func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int) Mapping {
+func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int, insertAnchors []int) Mapping {
 	sec := s1[m.File1Index]
 	mp := Mapping{
 		Title:          sec.Title,
@@ -313,9 +319,77 @@ func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int) Mapping {
 		return mp
 	}
 	if m.InsertAfterLine > 0 {
-		mp.InsertAfterLine = clampLine(m.InsertAfterLine, targetLineCount)
+		mp.InsertAfterLine = nearestSafeInsertAnchor(clampLine(m.InsertAfterLine, targetLineCount), insertAnchors)
 	}
 	return mp
+}
+
+func safeInsertAnchors(lines []string) []int {
+	anchors := map[int]bool{0: true, len(lines): true}
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			anchors[i+1] = true
+		}
+	}
+
+	for _, sec := range parseNoteSections(strings.Join(lines, "\n")) {
+		anchors[sec.EndLine] = true
+		if sec.StartLine > 1 {
+			anchors[sec.StartLine-1] = true
+		}
+	}
+
+	out := make([]int, 0, len(anchors))
+	for line := range anchors {
+		out = append(out, line)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func formatInsertAnchors(lines []string, anchors []int) string {
+	var b strings.Builder
+	for _, anchor := range anchors {
+		if anchor == 0 {
+			b.WriteString("- 0: append at end when no specific destination line fits\n")
+			continue
+		}
+		context := ""
+		if anchor <= len(lines) {
+			context = strings.TrimSpace(lines[anchor-1])
+		}
+		if context == "" && anchor < len(lines) {
+			context = "before " + strings.TrimSpace(lines[anchor])
+		}
+		if context == "" {
+			context = "end of file"
+		}
+		fmt.Fprintf(&b, "- %d: %s\n", anchor, context)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func nearestSafeInsertAnchor(line int, anchors []int) int {
+	if line <= 0 || len(anchors) == 0 {
+		return 0
+	}
+	best := anchors[0]
+	bestDistance := abs(line - best)
+	for _, anchor := range anchors[1:] {
+		distance := abs(line - anchor)
+		if distance < bestDistance || (distance == bestDistance && anchor < best) {
+			best = anchor
+			bestDistance = distance
+		}
+	}
+	return best
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func clampLine(line, maxLine int) int {
