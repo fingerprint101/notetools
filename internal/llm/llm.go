@@ -13,6 +13,7 @@ type Provider interface {
 	GenerateWithImage(ctx context.Context, model, prompt, imagePath string) (string, error)
 	GenerateWithImages(ctx context.Context, model, prompt string, imagePaths []string) (string, error)
 	GenerateJSON(ctx context.Context, model, prompt string, schema map[string]any) (string, error)
+	GenerateJSONWithImages(ctx context.Context, model, prompt string, imagePaths []string, schema map[string]any) (string, error)
 }
 
 // JSONPromptSuffix is the boilerplate appended to JSON prompts for CLI-based

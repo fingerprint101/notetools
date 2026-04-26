@@ -105,6 +105,34 @@ func (c *OpenCodeClient) GenerateJSON(ctx context.Context, model, prompt string,
 	return extractJSON(raw), nil
 }
 
+func (c *OpenCodeClient) GenerateJSONWithImages(ctx context.Context, model, prompt string, imagePaths []string, schema map[string]any) (string, error) {
+	args := []string{
+		"run", "-m", model, "--format", "json",
+	}
+
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		return "", fmt.Errorf("marshal schema: %w", err)
+	}
+
+	jsonPrompt := fmt.Sprintf(
+		"%s\n\nYou MUST respond with valid JSON matching this schema. Output ONLY valid JSON, no markdown fences, no commentary.\nSchema: %s",
+		prompt, string(schemaJSON),
+	)
+
+	args = append(args, jsonPrompt)
+	for _, p := range imagePaths {
+		args = append(args, "-f", p)
+	}
+
+	raw, err := runOpenCode(ctx, args)
+	if err != nil {
+		return "", err
+	}
+
+	return extractJSON(raw), nil
+}
+
 func extractJSON(text string) string {
 	stripped := strings.TrimSpace(text)
 

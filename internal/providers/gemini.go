@@ -92,4 +92,12 @@ func (c *GeminiClient) GenerateJSON(ctx context.Context, model, prompt string, s
 	return llm.ExtractJSON(raw), nil
 }
 
+func (c *GeminiClient) GenerateJSONWithImages(ctx context.Context, model, prompt string, imagePaths []string, schema map[string]any) (string, error) {
+	raw, err := runGemini(ctx, model, withDirectFileContext(prompt+llm.JSONPromptSuffix(schema), imagePaths))
+	if err != nil {
+		return "", err
+	}
+	return llm.ExtractJSON(raw), nil
+}
+
 var _ llm.Provider = (*GeminiClient)(nil)

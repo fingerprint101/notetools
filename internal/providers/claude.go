@@ -86,6 +86,18 @@ func (c *ClaudeClient) GenerateJSON(ctx context.Context, model, prompt string, s
 	if err != nil {
 		return "", err
 	}
+	return extractClaudeJSON(raw, schema)
+}
+
+func (c *ClaudeClient) GenerateJSONWithImages(ctx context.Context, model, prompt string, imagePaths []string, schema map[string]any) (string, error) {
+	raw, err := runClaude(ctx, model, promptWithImages(prompt, imagePaths), imagePaths, schema)
+	if err != nil {
+		return "", err
+	}
+	return extractClaudeJSON(raw, schema)
+}
+
+func extractClaudeJSON(raw string, schema map[string]any) (string, error) {
 	if schema == nil {
 		return llm.ExtractJSON(raw), nil
 	}

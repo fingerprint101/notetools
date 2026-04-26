@@ -20,8 +20,49 @@ type SectionWithExplanation struct {
 	Explanation string
 }
 
+type Crop struct {
+	ID         string `json:"id"`
+	ImageIndex int    `json:"image_index"`
+	X1         int    `json:"x1"`
+	Y1         int    `json:"y1"`
+	X2         int    `json:"x2"`
+	Y2         int    `json:"y2"`
+	AltText    string `json:"alt_text"`
+}
+
+type SectionExplanation struct {
+	Markdown string `json:"explanation_markdown"`
+	Crops    []Crop `json:"crops"`
+}
+
 type sectionsResponse struct {
 	Sections []Section `json:"sections"`
+}
+
+var sectionExplanationSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"properties": map[string]any{
+		"explanation_markdown": map[string]any{"type": "string", "minLength": 1},
+		"crops": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"id":          map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+					"image_index": map[string]any{"type": "integer", "minimum": 1},
+					"x1":          map[string]any{"type": "integer", "minimum": 0},
+					"y1":          map[string]any{"type": "integer", "minimum": 0},
+					"x2":          map[string]any{"type": "integer", "minimum": 1},
+					"y2":          map[string]any{"type": "integer", "minimum": 1},
+					"alt_text":    map[string]any{"type": "string"},
+				},
+				"required": []string{"id", "image_index", "x1", "y1", "x2", "y2", "alt_text"},
+			},
+		},
+	},
+	"required": []string{"explanation_markdown", "crops"},
 }
 
 var sectionsSchema = map[string]any{
@@ -79,18 +120,54 @@ Task:
 	return resp.Sections, nil
 }
 
-func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage int) (string, error) {
-	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths))
+func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool) (SectionExplanation, error) {
+	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages)
 
-	out, err := p.GenerateWithImages(ctx, model, prompt, pagePaths)
+	raw, err := p.GenerateJSONWithImages(ctx, model, prompt, pagePaths, sectionExplanationSchema)
 	if err != nil {
-		return "", fmt.Errorf("explain section %q: %w", title, err)
+		return SectionExplanation{}, fmt.Errorf("explain section %q: %w", title, err)
 	}
 
-	return strings.TrimSpace(out), nil
+	var exp SectionExplanation
+	if err := json.Unmarshal([]byte(raw), &exp); err != nil {
+		return SectionExplanation{}, fmt.Errorf("failed to parse explanation JSON for section %q: %w", title, err)
+	}
+
+	exp.Markdown = strings.TrimSpace(exp.Markdown)
+	for i := range exp.Crops {
+		exp.Crops[i].ID = strings.TrimSpace(exp.Crops[i].ID)
+		exp.Crops[i].AltText = strings.TrimSpace(exp.Crops[i].AltText)
+	}
+	if exp.Markdown == "" {
+		return SectionExplanation{}, fmt.Errorf("model returned an empty explanation for section %q", title)
+	}
+
+	return exp, nil
 }
 
-func buildExplainPrompt(title string, startPage, endPage, pageCount int) string {
+func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool) string {
+	imageRules := `Image crop rules:
+- Return JSON with "explanation_markdown" and "crops".
+- "explanation_markdown" contains the notes themselves and may include image placeholders.
+- Include crops only when a visual region materially improves understanding, such as diagrams,
+  dense formulas, architecture sketches, plots, or tables.
+- Do not crop decorative, redundant, or low-value content.
+- When including a crop, place an inline placeholder exactly where the image best supports the
+  prose: [[image:section-%02d-001]], [[image:section-%02d-002]], and so on.
+- Each crop id must exactly match one placeholder in "explanation_markdown".
+- Use image_index as a 1-based index into the provided section images.
+- Coordinates are pixel coordinates in the rendered page PNG: x1,y1 is the top-left corner and
+  x2,y2 is the bottom-right corner.`
+	if !includeImages {
+		imageRules = `Image crop rules:
+- Return JSON with "explanation_markdown" and "crops".
+- Do not include image placeholders in "explanation_markdown".
+- Return an empty array for "crops".
+- Still use the provided page images as source material for the written explanation.`
+	} else {
+		imageRules = fmt.Sprintf(imageRules, sectionNumber, sectionNumber)
+	}
+
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
@@ -125,7 +202,9 @@ Content rules:
 - Do not invent content not present on the pages.
 - Do not add introductions, conclusions, or meta-commentary.
 - Write in the same language as the document.
-- Output only the notes themselves.`, title, startPage, endPage, pageCount)
+
+%s
+- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, imageRules)
 }
 
 func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) string {

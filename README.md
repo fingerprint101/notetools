@@ -53,7 +53,7 @@ For `claude`, `codex`, and `gemini`, local file or image context is passed by pa
 
 ```bash
 nt explain lecture.pdf      # or: nt e lecture.pdf
-# => lecture_explained.md
+# => lecture.md
 ```
 
 ### Preview a file with line numbers

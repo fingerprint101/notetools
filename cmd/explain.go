@@ -10,7 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var explainOutput string
+var (
+	explainOutput string
+	explainNoImg  bool
+)
 
 var explainCmd = &cobra.Command{
 	Use:     "explain <pdf>",
@@ -24,7 +27,8 @@ all explanations chained together.`,
 }
 
 func init() {
-	explainCmd.Flags().StringVarP(&explainOutput, "output", "o", "", "output file path (default: {stem}_explained.md)")
+	explainCmd.Flags().StringVarP(&explainOutput, "output", "o", "", "output file path (default: {stem}.md)")
+	explainCmd.Flags().BoolVar(&explainNoImg, "noimg", false, "skip cropped images in the output Markdown")
 	rootCmd.AddCommand(explainCmd)
 }
 
@@ -37,7 +41,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	stem := strings.TrimSuffix(filepath.Base(pdfPath), filepath.Ext(pdfPath))
 	outputPath := explainOutput
 	if outputPath == "" {
-		outputPath = filepath.Join(filepath.Dir(pdfPath), stem+"_explained.md")
+		outputPath = filepath.Join(filepath.Dir(pdfPath), stem+".md")
 	}
 
 	if noOverwrite {
@@ -68,6 +72,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}()
 
 	explained := make([]docs.SectionWithExplanation, 0, len(sections))
+	imageDir := filepath.Join(filepath.Dir(outputPath), "Images")
 	for i, s := range sections {
 		fmt.Fprintf(os.Stderr, "  Section %d/%d: %s (pages %d-%d)\n", i+1, len(sections), s.Title, s.StartPage, s.EndPage)
 
@@ -81,14 +86,25 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "    Explaining %d page(s)...\n", len(sectionPages))
-		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage)
+		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg)
 		if err != nil {
 			return err
 		}
 
+		markdown := exp.Markdown
+		if explainNoImg {
+			markdown = docs.RemoveImagePlaceholders(markdown)
+		} else {
+			var warnings []string
+			markdown, warnings = docs.MaterializeCrops(cmd.Context(), markdown, exp.Crops, sectionPages, imageDir)
+			for _, warning := range warnings {
+				fmt.Fprintf(os.Stderr, "    Warning: %s\n", warning)
+			}
+		}
+
 		explained = append(explained, docs.SectionWithExplanation{
 			Section:     s,
-			Explanation: exp,
+			Explanation: markdown,
 		})
 	}
 

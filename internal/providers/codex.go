@@ -98,4 +98,12 @@ func (c *CodexClient) GenerateJSON(ctx context.Context, model, prompt string, sc
 	return llm.ExtractJSON(raw), nil
 }
 
+func (c *CodexClient) GenerateJSONWithImages(ctx context.Context, model, prompt string, imagePaths []string, schema map[string]any) (string, error) {
+	raw, err := runCodex(ctx, model, prompt, imagePaths, schema)
+	if err != nil {
+		return "", err
+	}
+	return llm.ExtractJSON(raw), nil
+}
+
 var _ llm.Provider = (*CodexClient)(nil)
