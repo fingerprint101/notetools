@@ -52,10 +52,10 @@ var sectionExplanationSchema = map[string]any{
 				"properties": map[string]any{
 					"id":          map[string]any{"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
 					"image_index": map[string]any{"type": "integer", "minimum": 1},
-					"x1":          map[string]any{"type": "integer", "minimum": 0},
-					"y1":          map[string]any{"type": "integer", "minimum": 0},
-					"x2":          map[string]any{"type": "integer", "minimum": 1},
-					"y2":          map[string]any{"type": "integer", "minimum": 1},
+					"x1":          map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
+					"y1":          map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
+					"x2":          map[string]any{"type": "integer", "minimum": 1, "maximum": 1000},
+					"y2":          map[string]any{"type": "integer", "minimum": 1, "maximum": 1000},
 					"alt_text":    map[string]any{"type": "string"},
 				},
 				"required": []string{"id", "image_index", "x1", "y1", "x2", "y2", "alt_text"},
@@ -146,18 +146,35 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 }
 
 func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool) string {
+	var imageIndexGuide strings.Builder
+	for i := 1; i <= pageCount; i++ {
+		if i > 1 {
+			imageIndexGuide.WriteString("\n")
+		}
+		fmt.Fprintf(&imageIndexGuide, "  image_index %d = document page %d", i, startPage+i-1)
+	}
+
 	imageRules := `Image crop rules:
 - Return JSON with "explanation_markdown" and "crops".
 - "explanation_markdown" contains the notes themselves and may include image placeholders.
 - Include crops only when a visual region materially improves understanding, such as diagrams,
   dense formulas, architecture sketches, plots, or tables.
-- Do not crop decorative, redundant, or low-value content.
+- Do not crop decorative, redundant, or low-value content. In particular, do not crop
+  text-only bullet slides unless the exact visual layout is necessary for understanding.
 - When including a crop, place an inline placeholder exactly where the image best supports the
   prose: [[image:section-%02d-001]], [[image:section-%02d-002]], and so on.
 - Each crop id must exactly match one placeholder in "explanation_markdown".
-- Use image_index as a 1-based index into the provided section images.
-- Coordinates are pixel coordinates in the rendered page PNG: x1,y1 is the top-left corner and
-  x2,y2 is the bottom-right corner.`
+- Use image_index as a 1-based index into the provided section images, not the document page
+  number and not a zero-based index:
+%s
+- Coordinates are normalized integers from 0 to 1000 relative to the selected image:
+  x1,y1 is the top-left corner and x2,y2 is the bottom-right corner. For example,
+  x1=0,y1=0,x2=1000,y2=500 means the top half of the selected image. Do not use
+  pixel coordinates from your resized image view.
+- The crop coordinates and alt_text must describe the same visible region. Never create a crop
+  for a diagram, figure, or table that appears only on an adjacent or following page outside the
+  provided image_index. If the right visual is not present in the provided section images, omit
+  the placeholder and explain the concept in prose.`
 	if !includeImages {
 		imageRules = `Image crop rules:
 - Return JSON with "explanation_markdown" and "crops".
@@ -165,7 +182,7 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 - Return an empty array for "crops".
 - Still use the provided page images as source material for the written explanation.`
 	} else {
-		imageRules = fmt.Sprintf(imageRules, sectionNumber, sectionNumber)
+		imageRules = fmt.Sprintf(imageRules, sectionNumber, sectionNumber, imageIndexGuide.String())
 	}
 
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.

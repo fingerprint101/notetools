@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,9 +17,12 @@ var (
 	cropIDRE           = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
-const defaultCropPaddingPx = 40
+const (
+	defaultCropPaddingPx = 40
+	cropCoordinateScale  = 1000
+)
 
-func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePaths []string, imageDir string) (string, []string) {
+func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePaths []string, imageDir, imageRelDir string) (string, []string) {
 	placeholders := placeholderIDs(markdown)
 	replacements := make(map[string]string)
 	var warnings []string
@@ -76,7 +80,7 @@ func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePa
 		if alt == "" {
 			alt = crop.ID
 		}
-		replacements[crop.ID] = fmt.Sprintf("![%s](Images/%s.png)", escapeMarkdownAlt(alt), crop.ID)
+		replacements[crop.ID] = fmt.Sprintf("![%s](%s)", escapeMarkdownAlt(alt), markdownImagePath(imageRelDir, crop.ID))
 	}
 
 	for id := range placeholders {
@@ -125,15 +129,27 @@ func imageSize(path string) (int, int, error) {
 }
 
 func normalizedCrop(crop Crop, width, height int) (int, int, int, int, bool) {
-	x1 := clamp(crop.X1-defaultCropPaddingPx, 0, width)
-	y1 := clamp(crop.Y1-defaultCropPaddingPx, 0, height)
-	x2 := clamp(crop.X2+defaultCropPaddingPx, 0, width)
-	y2 := clamp(crop.Y2+defaultCropPaddingPx, 0, height)
+	if crop.X1 < 0 || crop.X1 > cropCoordinateScale ||
+		crop.Y1 < 0 || crop.Y1 > cropCoordinateScale ||
+		crop.X2 < 0 || crop.X2 > cropCoordinateScale ||
+		crop.Y2 < 0 || crop.Y2 > cropCoordinateScale ||
+		crop.X2 <= crop.X1 || crop.Y2 <= crop.Y1 {
+		return 0, 0, 0, 0, false
+	}
+
+	x1 := clamp(scaleCropCoord(crop.X1, width)-defaultCropPaddingPx, 0, width)
+	y1 := clamp(scaleCropCoord(crop.Y1, height)-defaultCropPaddingPx, 0, height)
+	x2 := clamp(scaleCropCoord(crop.X2, width)+defaultCropPaddingPx, 0, width)
+	y2 := clamp(scaleCropCoord(crop.Y2, height)+defaultCropPaddingPx, 0, height)
 
 	if x2 <= x1 || y2 <= y1 {
 		return 0, 0, 0, 0, false
 	}
 	return x1, y1, x2 - x1, y2 - y1, true
+}
+
+func scaleCropCoord(v, size int) int {
+	return (v*size + cropCoordinateScale/2) / cropCoordinateScale
 }
 
 func clamp(v, min, max int) int {
@@ -150,6 +166,15 @@ func escapeMarkdownAlt(text string) string {
 	text = strings.ReplaceAll(text, "]", "\\]")
 	text = strings.ReplaceAll(text, "\n", " ")
 	return text
+}
+
+func markdownImagePath(imageRelDir, cropID string) string {
+	relPath := filepath.ToSlash(filepath.Join(imageRelDir, cropID+".png"))
+	parts := strings.Split(relPath, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 type subImager interface {
