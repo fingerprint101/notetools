@@ -174,7 +174,9 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 - The crop coordinates and alt_text must describe the same visible region. Never create a crop
   for a diagram, figure, or table that appears only on an adjacent or following page outside the
   provided image_index. If the right visual is not present in the provided section images, omit
-  the placeholder and explain the concept in prose.`
+  the placeholder and explain the concept in prose.
+- Write alt_text as one concise plain-text sentence. Do not use Markdown, LaTeX syntax, dollar
+  delimiters, backslash commands, or raw formulas. Describe formulas in words instead.`
 	if !includeImages {
 		imageRules = `Image crop rules:
 - Return JSON with "explanation_markdown" and "crops".

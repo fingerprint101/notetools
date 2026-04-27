@@ -79,7 +79,7 @@ func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePa
 			continue
 		}
 
-		replacements[crop.ID] = fmt.Sprintf("![Image](%s)", markdownImagePath(imageRelDir, imageName))
+		replacements[crop.ID] = fmt.Sprintf("![%s](%s)", markdownAltText(crop.AltText), markdownImagePath(imageRelDir, imageName))
 	}
 
 	for id := range placeholders {
@@ -89,6 +89,17 @@ func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePa
 	}
 
 	return replaceImagePlaceholders(markdown, replacements), warnings
+}
+
+func markdownAltText(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		return "Image"
+	}
+	text = strings.ReplaceAll(text, `\`, `\\`)
+	text = strings.ReplaceAll(text, "[", `\[`)
+	text = strings.ReplaceAll(text, "]", `\]`)
+	return text
 }
 
 func RemoveImagePlaceholders(markdown string) string {
