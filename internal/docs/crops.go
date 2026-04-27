@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -28,6 +29,7 @@ func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePa
 	var warnings []string
 
 	createdDir := false
+	usedImageNames := make(map[string]bool)
 	seen := make(map[string]bool)
 	for _, crop := range crops {
 		if seen[crop.ID] {
@@ -70,17 +72,14 @@ func MaterializeCrops(ctx context.Context, markdown string, crops []Crop, pagePa
 			createdDir = true
 		}
 
-		outPath := filepath.Join(imageDir, crop.ID+".png")
+		imageName := nextImageName(imageDir, usedImageNames)
+		outPath := filepath.Join(imageDir, imageName)
 		if err := cropImage(ctx, src, outPath, x, y, w, h); err != nil {
 			warnings = append(warnings, fmt.Sprintf("could not crop %q: %v; skipped", crop.ID, err))
 			continue
 		}
 
-		alt := crop.AltText
-		if alt == "" {
-			alt = crop.ID
-		}
-		replacements[crop.ID] = fmt.Sprintf("![%s](%s)", escapeMarkdownAlt(alt), markdownImagePath(imageRelDir, crop.ID))
+		replacements[crop.ID] = fmt.Sprintf("![Image](%s)", markdownImagePath(imageRelDir, imageName))
 	}
 
 	for id := range placeholders {
@@ -162,14 +161,22 @@ func clamp(v, min, max int) int {
 	return v
 }
 
-func escapeMarkdownAlt(text string) string {
-	text = strings.ReplaceAll(text, "]", "\\]")
-	text = strings.ReplaceAll(text, "\n", " ")
-	return text
+func nextImageName(imageDir string, used map[string]bool) string {
+	ts := time.Now().UnixMilli()
+	for {
+		name := fmt.Sprintf("Notes-%d.png", ts)
+		if !used[name] {
+			if _, err := os.Stat(filepath.Join(imageDir, name)); os.IsNotExist(err) {
+				used[name] = true
+				return name
+			}
+		}
+		ts++
+	}
 }
 
-func markdownImagePath(imageRelDir, cropID string) string {
-	relPath := filepath.ToSlash(filepath.Join(imageRelDir, cropID+".png"))
+func markdownImagePath(imageRelDir, imageName string) string {
+	relPath := filepath.ToSlash(filepath.Join(imageRelDir, imageName))
 	parts := strings.Split(relPath, "/")
 	for i, part := range parts {
 		parts[i] = url.PathEscape(part)

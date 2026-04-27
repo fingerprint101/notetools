@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/fingerprint/notetools/internal/docs"
 	"github.com/spf13/cobra"
@@ -73,9 +72,8 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}()
 
 	explained := make([]docs.SectionWithExplanation, 0, len(sections))
-	imageNamespace := fmt.Sprintf("Notes-%d", time.Now().UnixMilli())
-	imageDir := filepath.Join(filepath.Dir(outputPath), "Images", imageNamespace)
-	imageRelDir := filepath.ToSlash(filepath.Join("Images", imageNamespace))
+	imageDir := filepath.Join(filepath.Dir(outputPath), "Images")
+	imageRelDir := "Images"
 	for i, s := range sections {
 		fmt.Fprintf(os.Stderr, "  Section %d/%d: %s (pages %d-%d)\n", i+1, len(sections), s.Title, s.StartPage, s.EndPage)
 
