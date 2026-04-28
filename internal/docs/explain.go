@@ -120,6 +120,37 @@ Task:
 	return resp.Sections, nil
 }
 
+func ValidateSections(sections []Section, pageCount int) error {
+	if len(sections) == 0 {
+		return fmt.Errorf("no sections found")
+	}
+	if pageCount <= 0 {
+		return fmt.Errorf("invalid page count %d", pageCount)
+	}
+
+	nextStart := 1
+	for i, section := range sections {
+		if strings.TrimSpace(section.Title) == "" {
+			return fmt.Errorf("section %d has an empty title", i+1)
+		}
+		if section.StartPage != nextStart {
+			return fmt.Errorf("section %q starts at page %d, expected %d", section.Title, section.StartPage, nextStart)
+		}
+		if section.EndPage < section.StartPage {
+			return fmt.Errorf("section %q has invalid page range %d-%d", section.Title, section.StartPage, section.EndPage)
+		}
+		if section.EndPage > pageCount {
+			return fmt.Errorf("section %q ends at page %d, but PDF has %d page(s)", section.Title, section.EndPage, pageCount)
+		}
+		nextStart = section.EndPage + 1
+	}
+
+	if nextStart != pageCount+1 {
+		return fmt.Errorf("section ranges end at page %d, but PDF has %d page(s)", nextStart-1, pageCount)
+	}
+	return nil
+}
+
 func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool) (SectionExplanation, error) {
 	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages)
 

@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +8,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/fingerprint/notetools/internal/llm"
 )
 
 type OpenCodeClient struct{}
@@ -102,7 +103,7 @@ func (c *OpenCodeClient) GenerateJSON(ctx context.Context, model, prompt string,
 		return "", err
 	}
 
-	return extractJSON(raw), nil
+	return llm.ExtractJSON(raw), nil
 }
 
 func (c *OpenCodeClient) GenerateJSONWithImages(ctx context.Context, model, prompt string, imagePaths []string, schema map[string]any) (string, error) {
@@ -130,45 +131,5 @@ func (c *OpenCodeClient) GenerateJSONWithImages(ctx context.Context, model, prom
 		return "", err
 	}
 
-	return extractJSON(raw), nil
-}
-
-func extractJSON(text string) string {
-	stripped := strings.TrimSpace(text)
-
-	scanner := bufio.NewScanner(strings.NewReader(stripped))
-	inFence := false
-	var lines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "```") {
-			if inFence {
-				inFence = false
-				continue
-			}
-			inFence = true
-			continue
-		}
-		if inFence {
-			lines = append(lines, line)
-		}
-	}
-	if len(lines) > 0 {
-		stripped = strings.Join(lines, "\n")
-	}
-
-	if json.Valid([]byte(stripped)) {
-		return stripped
-	}
-
-	start := strings.Index(stripped, "{")
-	end := strings.LastIndex(stripped, "}")
-	if start != -1 && end > start {
-		candidate := stripped[start : end+1]
-		if json.Valid([]byte(candidate)) {
-			return candidate
-		}
-	}
-
-	return stripped
+	return llm.ExtractJSON(raw), nil
 }

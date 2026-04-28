@@ -197,7 +197,11 @@ func PlanWithTokenBudget(ctx context.Context, p llm.Provider, model, file1Conten
 		allMatches = append(allMatches, resp.Matches...)
 	}
 
-	return toMappings(matchResponse{Matches: allMatches}, s1, len(lines2), insertAnchors), nil
+	mappings, err := toMappings(matchResponse{Matches: allMatches}, s1, len(lines2), insertAnchors)
+	if err != nil {
+		return nil, err
+	}
+	return mappings, nil
 }
 
 func buildPlanPrompt(numberedTarget, insertAnchors, sourceBatch string) string {
@@ -275,20 +279,27 @@ func ParsePlan(content string) (PlanDocument, error) {
 	return doc, nil
 }
 
-func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int, insertAnchors []int) []Mapping {
-	seen := make(map[int]bool, len(s1))
-	out := make([]Mapping, 0, len(s1))
-
+func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int, insertAnchors []int) ([]Mapping, error) {
+	matches := make(map[int]sectionMatch, len(s1))
 	for _, m := range resp.Matches {
-		if m.File1Index < 0 || m.File1Index >= len(s1) || seen[m.File1Index] {
+		if m.File1Index < 0 || m.File1Index >= len(s1) {
 			continue
 		}
-		seen[m.File1Index] = true
-		out = append(out, mappingFor(m, s1, targetLineCount, insertAnchors))
+		if _, exists := matches[m.File1Index]; exists {
+			continue
+		}
+		matches[m.File1Index] = m
 	}
 
+	out := make([]Mapping, 0, len(s1))
 	for i, sec := range s1 {
-		if seen[i] {
+		m, ok := matches[i]
+		if ok {
+			mp, err := mappingFor(m, s1, targetLineCount, insertAnchors)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, mp)
 			continue
 		}
 		out = append(out, Mapping{
@@ -300,10 +311,10 @@ func toMappings(resp matchResponse, s1 []noteSection, targetLineCount int, inser
 		})
 	}
 
-	return out
+	return out, nil
 }
 
-func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int, insertAnchors []int) Mapping {
+func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int, insertAnchors []int) (Mapping, error) {
 	sec := s1[m.File1Index]
 	mp := Mapping{
 		Title:          sec.Title,
@@ -312,16 +323,20 @@ func mappingFor(m sectionMatch, s1 []noteSection, targetLineCount int, insertAnc
 		PresentInFile2: m.Present,
 	}
 	if m.Present {
-		if m.File2Start > 0 && m.File2End >= m.File2Start {
-			mp.File2Start = clampLine(m.File2Start, targetLineCount)
-			mp.File2End = clampLine(m.File2End, targetLineCount)
+		if m.File2Start <= 0 || m.File2End < m.File2Start {
+			return Mapping{}, fmt.Errorf("section %q has invalid target line range %d-%d", sec.Title, m.File2Start, m.File2End)
 		}
-		return mp
+		if targetLineCount > 0 && m.File2End > targetLineCount {
+			return Mapping{}, fmt.Errorf("section %q target line range %d-%d exceeds target length (%d lines)", sec.Title, m.File2Start, m.File2End, targetLineCount)
+		}
+		mp.File2Start = m.File2Start
+		mp.File2End = m.File2End
+		return mp, nil
 	}
 	if m.InsertAfterLine > 0 {
 		mp.InsertAfterLine = nearestSafeInsertAnchor(clampLine(m.InsertAfterLine, targetLineCount), insertAnchors)
 	}
-	return mp
+	return mp, nil
 }
 
 func safeInsertAnchors(lines []string) []int {

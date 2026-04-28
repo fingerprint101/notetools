@@ -53,13 +53,6 @@ func runExplain(cmd *cobra.Command, args []string) error {
 
 	p, model := providerFor("explain")
 
-	fmt.Fprintf(os.Stderr, "Identifying sections in %s...\n", pdfPath)
-	sections, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "Found %d sections.\n", len(sections))
-
 	fmt.Fprintf(os.Stderr, "Rendering PDF pages at 150 DPI...\n")
 	pages, err := docs.RenderPages(pdfPath, 150)
 	if err != nil {
@@ -71,6 +64,16 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	fmt.Fprintf(os.Stderr, "Identifying sections in %s...\n", pdfPath)
+	sections, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath)
+	if err != nil {
+		return err
+	}
+	if err := docs.ValidateSections(sections, len(pages)); err != nil {
+		return fmt.Errorf("invalid section plan: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "Found %d sections.\n", len(sections))
+
 	explained := make([]docs.SectionWithExplanation, 0, len(sections))
 	imageDir := filepath.Join(filepath.Dir(outputPath), "Images")
 	imageRelDir := "Images"
@@ -79,10 +82,6 @@ func runExplain(cmd *cobra.Command, args []string) error {
 
 		var sectionPages []string
 		for pg := s.StartPage; pg <= s.EndPage; pg++ {
-			if pg < 1 || pg > len(pages) {
-				fmt.Fprintf(os.Stderr, "    Warning: page %d out of range, skipping\n", pg)
-				continue
-			}
 			sectionPages = append(sectionPages, pages[pg-1])
 		}
 
