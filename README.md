@@ -1,6 +1,6 @@
 # nt (notetools)
 
-AI CLI for document explanation, transcript cleaning, and note merging. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), [Codex](https://github.com/openai/codex), or [Gemini CLI](https://geminicli.com/docs/cli/cli-reference/).
+AI CLI for document explanation, transcript cleaning, and note merging. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), or [Codex](https://github.com/openai/codex).
 
 - **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
@@ -12,7 +12,7 @@ AI CLI for document explanation, transcript cleaning, and note merging. Routes r
 ## Requirements
 
 - Go 1.21+ (to build)
-- At least one of: `opencode`, `claude` (Claude Code), `codex`, or `gemini` installed and authenticated
+- At least one of: `opencode`, `claude` (Claude Code), or `codex` installed and authenticated
 
 ## Installation
 
@@ -33,7 +33,6 @@ nt config set clean opencode opencode-go/glm-5.1
 nt config set execute opencode opencode-go/glm-5.1
 nt config set merge claude sonnet
 nt config set explain codex gpt-5-codex
-nt config set plan gemini auto
 ```
 
 Supported providers:
@@ -43,9 +42,8 @@ Supported providers:
 | `opencode` | `opencode run ...`             | Multi-provider router |
 | `claude`   | `claude -p ...`                | Claude Code CLI |
 | `codex`    | `codex exec ...`               | Codex CLI |
-| `gemini`   | `gemini -p ... --output-format json` | Gemini CLI headless mode |
 
-For `claude`, `codex`, and `gemini`, local file or image context is passed by path in the prompt and read by the provider CLI.
+For `claude` and `codex`, local file or image context is passed by path in the prompt and read by the provider CLI.
 
 ## Usage
 
