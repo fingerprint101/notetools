@@ -1,10 +1,11 @@
 # nt (notetools)
 
-AI CLI for document explanation, transcript cleaning, and note merging. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), or [Codex](https://github.com/openai/codex).
+AI CLI for document explanation, transcript cleaning, note merging, and coverage checks. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), or [Codex](https://github.com/openai/codex).
 
 - **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
 - **`nt merge`** (`m`) — Merge two Markdown notes, or selected snippets from them
+- **`nt check`** (`ck`) — Check whether a target contains all information from source files
 - **`nt clean`** (`c`) — Section and clean a raw transcript
 
 ## Requirements
@@ -27,8 +28,8 @@ Each command has a configurable provider/model. Defaults use `opencode-go/glm-5.
 
 ```bash
 nt config show
+nt config set check opencode opencode-go/glm-5.1
 nt config set clean opencode opencode-go/glm-5.1
-nt config set execute opencode opencode-go/glm-5.1
 nt config set merge claude sonnet
 nt config set explain codex gpt-5-codex
 ```
@@ -83,6 +84,17 @@ nt m alice_notes.md:10-85 bob_notes.md:30-120 -i "Focus on the chemistry section
 ```
 
 Merge preserves all details from both snippets without summarizing. Contradictions are marked with `<!-- CONFLICT -->` comments.
+
+### Check coverage
+
+Use `check` with one or more source files followed by the target file. It reports source sections whose information is missing from the target:
+
+```bash
+nt check source_a.md source_b.md merged.md
+nt check lecture.md:20-120 merged.md
+```
+
+If the target already contains the source information, it prints `nothing to report`.
 
 ### Clean a transcript
 

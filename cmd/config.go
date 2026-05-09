@@ -34,8 +34,8 @@ Providers:
   codex    - Codex CLI
 
 Examples:
+  nt config set check opencode opencode-go/glm-5.1
   nt config set clean opencode opencode-go/glm-5.1
-  nt config set execute opencode opencode-go/glm-5.1
   nt config set merge claude sonnet
   nt config set explain codex gpt-5-codex`,
 	Args: cobra.ExactArgs(3),

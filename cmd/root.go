@@ -15,8 +15,8 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "nt",
-	Short: "AI CLI for document explanation, transcript cleaning, and note merging",
-	Long:  "nt (notetools) uses configurable LLM CLI providers to explain PDFs, clean transcripts, and merge notes.",
+	Short: "AI CLI for document explanation, transcript cleaning, note merging, and coverage checks",
+	Long:  "nt (notetools) uses configurable LLM CLI providers to explain PDFs, clean transcripts, merge notes, and check coverage.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		appConfig, err = app.Load()

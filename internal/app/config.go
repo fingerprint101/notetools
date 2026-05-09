@@ -18,11 +18,10 @@ type Config struct {
 }
 
 var defaultCommandConfigs = map[string]CommandConfig{
+	"check":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
 	"clean":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
-	"execute": {Provider: "opencode", Model: "opencode-go/glm-5.1"},
 	"merge":   {Provider: "opencode", Model: "opencode-go/glm-5.1"},
 	"explain": {Provider: "opencode", Model: "opencode-go/glm-5.1"},
-	"plan":    {Provider: "opencode", Model: "opencode-go/glm-5.1"},
 }
 
 func Defaults() Config {

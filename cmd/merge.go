@@ -81,9 +81,9 @@ func runFullMerge(cmd *cobra.Command, sourcePath, targetPath string) error {
 		}
 	}
 
-	planProvider, planModel := providerFor("plan")
-	fmt.Fprintf(os.Stderr, "Planning merge with %s (%s)...\n", planProvider.Name(), planModel)
-	mappings, err := notes.PlanWithTokenBudget(cmd.Context(), planProvider, planModel, string(sourceContent), string(targetContent), mergeTokenBudget)
+	p, model := providerFor("merge")
+	fmt.Fprintf(os.Stderr, "Planning merge with %s (%s)...\n", p.Name(), model)
+	mappings, err := notes.PlanWithTokenBudget(cmd.Context(), p, model, string(sourceContent), string(targetContent), mergeTokenBudget)
 	if err != nil {
 		return err
 	}
@@ -98,10 +98,9 @@ func runFullMerge(cmd *cobra.Command, sourcePath, targetPath string) error {
 	}
 	doc := notes.NewPlanDocument(absSourcePath, absTargetPath, mappings)
 
-	executeProvider, executeModel := providerFor("execute")
-	fmt.Fprintf(os.Stderr, "Executing merge with %s (%s)...\n", executeProvider.Name(), executeModel)
+	fmt.Fprintf(os.Stderr, "Executing merge with %s (%s)...\n", p.Name(), model)
 	beforeTarget := string(targetContent)
-	err = notes.ExecutePlan(cmd.Context(), executeProvider, executeModel, doc, mergeInstructions, func(progress notes.ExecuteProgress) {
+	err = notes.ExecutePlan(cmd.Context(), p, model, doc, mergeInstructions, func(progress notes.ExecuteProgress) {
 		if progress.PresentInDst {
 			fmt.Fprintf(
 				os.Stderr,
