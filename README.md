@@ -4,9 +4,7 @@ AI CLI for document explanation, transcript cleaning, and note merging. Routes r
 
 - **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
-- **`nt plan`** — Identify which sections should be merged and where missing sections belong
-- **`nt execute`** — Execute the merges described by a plan file
-- **`nt merge`** (`m`) — Merge snippets from two notes into one
+- **`nt merge`** (`m`) — Merge two Markdown notes, or selected snippets from them
 - **`nt clean`** (`c`) — Section and clean a raw transcript
 
 ## Requirements
@@ -63,30 +61,23 @@ nt p notes.md:10-30         # lines 10 through 30
 
 ### Merge two notes
 
-Use `plan` when you first need to identify which sections from one note belong in the other:
+Use `merge` with two Markdown file paths to merge SOURCE into TARGET. This automatically plans where each source section belongs, executes the merges, updates the target file, and prints a diff:
 
 ```bash
-nt plan alice_notes.md bob_notes.md
-# => plan-alice_notes-bob_notes.json
+nt merge alice_notes.md bob_notes.md
+nt merge alice_notes.md bob_notes.md -i "Keep Bob's terminology where possible"
 ```
 
-The plan file is machine-readable JSON. For each source section it records either:
-
-- the corresponding section range in the target, or
-- the target section after which missing content should be inserted
-
-Use `execute` to apply the whole plan automatically, or `preview` + `merge` when you want to inspect ranges manually:
+Use `--output` to write the merged result to a copy instead of updating the target file:
 
 ```bash
-nt execute plan-alice_notes-bob_notes.json
-nt execute plan-alice_notes-bob_notes.json -i "Keep Bob's terminology where possible"
+nt merge alice_notes.md bob_notes.md -o combined.md
 ```
 
-Manual merge flow:
+Use line ranges when you want to merge selected snippets manually:
 
 ```bash
 nt m alice_notes.md:10-85 bob_notes.md:30-120
-nt m alice_notes.md bob_notes.md                       # full files
 nt m alice_notes.md:10-85 bob_notes.md:30-120 -o combined.md
 nt m alice_notes.md:10-85 bob_notes.md:30-120 -i "Focus on the chemistry section"
 ```
