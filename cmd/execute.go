@@ -38,6 +38,10 @@ func runExecute(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("parse plan file: %w", err)
 	}
+	beforeTarget, err := os.ReadFile(doc.TargetPath)
+	if err != nil {
+		return fmt.Errorf("read target before execute: %w", err)
+	}
 
 	p, model := providerFor("execute")
 	fmt.Fprintf(os.Stderr, "Executing plan %s with %s (%s)...\n", filepath.Base(planPath), p.Name(), model)
@@ -77,6 +81,12 @@ func runExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	afterTarget, err := os.ReadFile(doc.TargetPath)
+	if err != nil {
+		return fmt.Errorf("read target after execute: %w", err)
+	}
+
+	printMarkdownDiff(doc.TargetPath+" (before)", doc.TargetPath+" (after)", string(beforeTarget), string(afterTarget))
 	fmt.Fprintf(os.Stderr, "Updated: %s\n", doc.TargetPath)
 	return nil
 }

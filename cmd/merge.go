@@ -10,12 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	ansiRed   = "\033[31m"
-	ansiGreen = "\033[32m"
-	ansiReset = "\033[0m"
-)
-
 var (
 	mergeOutput       string
 	mergeInstructions string
@@ -82,13 +76,7 @@ func runMerge(cmd *cobra.Command, args []string) error {
 	}
 
 	rangeLabel := rangeDesc(path2, start2, end2)
-	fmt.Printf("--- %s\n+++ merged\n", rangeLabel)
-	for _, line := range strings.Split(snippet2, "\n") {
-		fmt.Printf("%s- %s%s\n", ansiRed, line, ansiReset)
-	}
-	for _, line := range strings.Split(result, "\n") {
-		fmt.Printf("%s+ %s%s\n", ansiGreen, line, ansiReset)
-	}
+	printMarkdownDiff(rangeLabel, "merged", snippet2, result)
 
 	fmt.Print("\nAccept changes? [y/N]: ")
 	scanner := bufio.NewScanner(os.Stdin)
