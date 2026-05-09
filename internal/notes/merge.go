@@ -10,7 +10,7 @@ import (
 const mergePromptTemplate = `You are a note-merging assistant. You are given two snippets from different
 people's notes on the same topic. Merge them into a single unified Markdown document.
 Treat SNIPPET 1 as source material to integrate into SNIPPET 2, which is the target note whose
-style, tone, and formatting conventions should be preserved by default.
+style, tone, language, and formatting conventions should be preserved by default.
 
 CRITICAL RULES:
 - Preserve ALL details from BOTH snippets. Do not summarize or condense.
@@ -19,7 +19,13 @@ CRITICAL RULES:
 - If the snippets cover different subtopics, include both in a logical order.
 - Preserve original formatting: headings, lists, tables, code blocks.
 - Use consistent heading levels (adjust if the two snippets use different levels).
-- Match the writing style of SNIPPET 2 unless an additional instruction says otherwise.
+- Match the writing style and language of SNIPPET 2 unless an additional instruction says otherwise.
+- If SNIPPET 1 contains unique information in a different language, translate or rewrite that
+  information into the target language while preserving its meaning and detail.
+- Preserve technical terms, formulas, names, code, commands, and identifiers exactly when
+  translating them would be incorrect or unnatural.
+- If SNIPPET 2 is empty, infer the target language, style, and heading conventions from the
+  TARGET NOTE CONTEXT when it is provided.
 - Write in a unified single-author voice, as if the merged note directly explains the subject.
 - Do not describe the content as coming from slides, notes, or another source unless that
   provenance is itself essential.
@@ -29,22 +35,43 @@ CRITICAL RULES:
 - If there are contradictions between the two sources, keep both versions and
   mark the conflict with a comment like: <!-- CONFLICT: source 1 says X, source 2 says Y -->
 %s
+%s
 --- SNIPPET 1 ---
 %s
 
 --- SNIPPET 2 ---
 %s`
 
-func buildMergePrompt(snippet1, snippet2, instructions string) string {
+type MergeOptions struct {
+	Instructions  string
+	TargetContext string
+}
+
+func buildMergePrompt(snippet1, snippet2 string, opts MergeOptions) string {
 	extra := ""
-	if instructions != "" {
-		extra = fmt.Sprintf("\nAdditional instructions: %s\n", instructions)
+	if opts.Instructions != "" {
+		extra = fmt.Sprintf("\nAdditional instructions: %s\n", opts.Instructions)
 	}
 
-	return fmt.Sprintf(mergePromptTemplate, extra, snippet1, snippet2)
+	targetContext := ""
+	if opts.TargetContext != "" {
+		targetContext = fmt.Sprintf(`TARGET NOTE CONTEXT:
+Use this only to infer the target note's language, tone, and formatting conventions when
+SNIPPET 2 does not provide enough context. Do not merge or copy unrelated content from this
+context unless it is also present in the snippets.
+%s
+
+`, opts.TargetContext)
+	}
+
+	return fmt.Sprintf(mergePromptTemplate, extra, targetContext, snippet1, snippet2)
 }
 
 func Merge(ctx context.Context, p llm.Provider, model, snippet1, snippet2, instructions string) (string, error) {
-	prompt := buildMergePrompt(snippet1, snippet2, instructions)
+	return MergeWithOptions(ctx, p, model, snippet1, snippet2, MergeOptions{Instructions: instructions})
+}
+
+func MergeWithOptions(ctx context.Context, p llm.Provider, model, snippet1, snippet2 string, opts MergeOptions) (string, error) {
+	prompt := buildMergePrompt(snippet1, snippet2, opts)
 	return p.Generate(ctx, model, prompt)
 }

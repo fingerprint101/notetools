@@ -9,6 +9,8 @@ import (
 	"github.com/fingerprint/notetools/internal/llm"
 )
 
+const targetContextCharBudget = 5000
+
 type ExecuteProgress struct {
 	Step         int
 	Total        int
@@ -33,6 +35,7 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 
 	sourceLines := strings.Split(string(sourceData), "\n")
 	targetLines := strings.Split(string(targetData), "\n")
+	targetContext := buildTargetContext(string(targetData), targetContextCharBudget)
 	mappings := append([]Mapping(nil), doc.Mappings...)
 
 	for i, mapping := range mappings {
@@ -65,7 +68,10 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 				return fmt.Errorf("target section %q: %w", mapping.Title, err)
 			}
 
-			merged, err := Merge(ctx, p, model, sourceSnippet, targetSnippet, instructions)
+			merged, err := MergeWithOptions(ctx, p, model, sourceSnippet, targetSnippet, MergeOptions{
+				Instructions:  instructions,
+				TargetContext: targetContext,
+			})
 			if err != nil {
 				return fmt.Errorf("merge %q failed: %w", mapping.Title, err)
 			}
@@ -85,7 +91,10 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 				notify(progress)
 			}
 
-			merged, err := Merge(ctx, p, model, sourceSnippet, "", buildInsertInstructions(instructions))
+			merged, err := MergeWithOptions(ctx, p, model, sourceSnippet, "", MergeOptions{
+				Instructions:  buildInsertInstructions(instructions),
+				TargetContext: targetContext,
+			})
 			if err != nil {
 				return fmt.Errorf("insert %q failed: %w", mapping.Title, err)
 			}
@@ -104,11 +113,79 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 }
 
 func buildInsertInstructions(extra string) string {
-	base := "SNIPPET 2 is intentionally empty because the target note does not yet cover this section. Preserve the structure and detail from SNIPPET 1 as a standalone section that can be inserted directly into the target note. Only adapt heading level or phrasing when needed to fit the target note's style."
+	base := "SNIPPET 2 is intentionally empty because the target note does not yet cover this section. Preserve the structure and detail from SNIPPET 1 as a standalone section that can be inserted directly into the target note. Adapt heading level, phrasing, and language to fit the target note's style. Use the target note's language, translating SNIPPET 1 when needed."
 	if extra == "" {
 		return base
 	}
 	return base + " " + extra
+}
+
+func buildTargetContext(content string, charBudget int) string {
+	if charBudget <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+	var headings []string
+	var prose []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			headings = append(headings, trimmed)
+			continue
+		}
+		if isContextProseLine(trimmed) {
+			prose = append(prose, trimmed)
+		}
+	}
+
+	var b strings.Builder
+	if len(headings) > 0 {
+		b.WriteString("Headings:\n")
+		for _, heading := range headings {
+			if !appendContextLine(&b, "- "+heading, charBudget) {
+				return strings.TrimSpace(b.String())
+			}
+		}
+	}
+
+	if len(prose) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("Representative prose:\n")
+		for _, line := range prose {
+			if !appendContextLine(&b, line, charBudget) {
+				break
+			}
+		}
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func isContextProseLine(line string) bool {
+	if strings.HasPrefix(line, "![") ||
+		strings.HasPrefix(line, "|") ||
+		strings.HasPrefix(line, "```") ||
+		strings.HasPrefix(line, "$$") {
+		return false
+	}
+	return true
+}
+
+func appendContextLine(b *strings.Builder, line string, charBudget int) bool {
+	if b.Len()+len(line)+1 > charBudget {
+		return false
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	b.WriteString(line)
+	return true
 }
 
 func sliceLines(lines []string, start, end int) (string, error) {
