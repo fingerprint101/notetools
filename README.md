@@ -7,6 +7,7 @@ AI CLI for document explanation, transcript cleaning, note merging, and coverage
 - **`nt merge`** (`m`) — Merge two Markdown notes, or selected snippets from them
 - **`nt check`** (`ck`) — Check whether a target contains all information from source files
 - **`nt clean`** (`c`) — Section and clean a raw transcript
+- **`nt summarize`** (`s`) — Create a lite version of notes while preserving their section structure
 
 ## Requirements
 
@@ -30,6 +31,7 @@ Each command has a configurable provider/model. Defaults use `opencode-go/glm-5.
 nt config show
 nt config set check opencode opencode-go/glm-5.1
 nt config set clean opencode opencode-go/glm-5.1
+nt config set summarize opencode opencode-go/glm-5.1
 nt config set merge claude sonnet
 nt config set explain codex gpt-5-codex
 ```
@@ -104,6 +106,16 @@ nt clean lecture_transcript.txt    # or: nt c lecture_transcript.txt
 ```
 
 Splits the transcript into thematic sections and cleans each one individually.
+
+### Summarize notes
+
+```bash
+nt summarize lecture.md            # or: nt s lecture.md
+nt s lecture.md:20-120
+# => lecture_summary.md
+```
+
+Creates a lite Markdown version of the note: each original section is kept and rewritten as a direct TL;DR of the same content.
 
 ### Global flags
 
