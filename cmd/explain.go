@@ -13,7 +13,6 @@ import (
 var (
 	explainOutput   string
 	explainLanguage string
-	explainNoImg    bool
 )
 
 var explainCmd = &cobra.Command{
@@ -30,7 +29,6 @@ all explanations chained together.`,
 func init() {
 	explainCmd.Flags().StringVarP(&explainOutput, "output", "o", "", "output file path (default: {stem}.md)")
 	explainCmd.Flags().StringVarP(&explainLanguage, "language", "l", "", "target language for the generated explanation (default: same as document)")
-	explainCmd.Flags().BoolVar(&explainNoImg, "noimg", false, "skip cropped images in the output Markdown")
 	rootCmd.AddCommand(explainCmd)
 }
 
@@ -59,8 +57,8 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Target language: %s\n", targetLanguage)
 	}
 
-	fmt.Fprintf(os.Stderr, "Rendering PDF pages at 150 DPI...\n")
-	pages, err := docs.RenderPages(pdfPath, 150)
+	fmt.Fprintf(os.Stderr, "Rendering PDF pages at 120 DPI...\n")
+	pages, err := docs.RenderPages(pdfPath, 120)
 	if err != nil {
 		return err
 	}
@@ -92,26 +90,23 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "    Explaining %d page(s)...\n", len(sectionPages))
-		priorContext := docs.BuildPriorSectionContext(explained, 3500)
-		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg, targetLanguage, priorContext)
+		priorContext := docs.BuildPriorSectionContext(explained, 1500)
+		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, targetLanguage, priorContext)
 		if err != nil {
 			return err
 		}
 
 		markdown := exp.Markdown
-		if explainNoImg {
-			markdown = docs.RemoveImagePlaceholders(markdown)
-		} else {
-			var warnings []string
-			markdown, warnings = docs.MaterializeCrops(cmd.Context(), markdown, exp.Crops, sectionPages, imageDir, imageRelDir)
-			for _, warning := range warnings {
-				fmt.Fprintf(os.Stderr, "    Warning: %s\n", warning)
-			}
+		var warnings []string
+		markdown, warnings = docs.MaterializeCrops(cmd.Context(), markdown, exp.Crops, sectionPages, imageDir, imageRelDir)
+		for _, warning := range warnings {
+			fmt.Fprintf(os.Stderr, "    Warning: %s\n", warning)
 		}
 
 		explained = append(explained, docs.SectionWithExplanation{
 			Section:     s,
 			Explanation: markdown,
+			Memory:      exp.Memory,
 		})
 	}
 

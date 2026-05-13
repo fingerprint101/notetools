@@ -102,10 +102,6 @@ func markdownAltText(text string) string {
 	return text
 }
 
-func RemoveImagePlaceholders(markdown string) string {
-	return replaceImagePlaceholders(markdown, nil)
-}
-
 func placeholderIDs(markdown string) map[string]bool {
 	ids := make(map[string]bool)
 	for _, match := range imagePlaceholderRE.FindAllStringSubmatch(markdown, -1) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/fingerprint/notetools/internal/llm"
@@ -19,6 +18,7 @@ type Section struct {
 type SectionWithExplanation struct {
 	Section
 	Explanation string
+	Memory      SectionMemory
 }
 
 type Crop struct {
@@ -32,12 +32,32 @@ type Crop struct {
 }
 
 type SectionExplanation struct {
-	Markdown string `json:"explanation_markdown"`
-	Crops    []Crop `json:"crops"`
+	Markdown string        `json:"explanation_markdown"`
+	Crops    []Crop        `json:"crops"`
+	Memory   SectionMemory `json:"memory"`
+}
+
+type SectionMemory struct {
+	IntroducedTerms     []string `json:"introduced_terms"`
+	Formulas            []string `json:"formulas"`
+	RecurringPrinciples []string `json:"recurring_principles"`
+	OpenThreads         []string `json:"open_threads"`
 }
 
 type sectionsResponse struct {
 	Sections []Section `json:"sections"`
+}
+
+func memoryArraySchema() map[string]any {
+	return map[string]any{
+		"type":     "array",
+		"maxItems": 8,
+		"items": map[string]any{
+			"type":      "string",
+			"minLength": 1,
+			"maxLength": 180,
+		},
+	}
 }
 
 var sectionExplanationSchema = map[string]any{
@@ -45,6 +65,17 @@ var sectionExplanationSchema = map[string]any{
 	"additionalProperties": false,
 	"properties": map[string]any{
 		"explanation_markdown": map[string]any{"type": "string", "minLength": 1},
+		"memory": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"introduced_terms":     memoryArraySchema(),
+				"formulas":             memoryArraySchema(),
+				"recurring_principles": memoryArraySchema(),
+				"open_threads":         memoryArraySchema(),
+			},
+			"required": []string{"introduced_terms", "formulas", "recurring_principles", "open_threads"},
+		},
 		"crops": map[string]any{
 			"type": "array",
 			"items": map[string]any{
@@ -63,7 +94,7 @@ var sectionExplanationSchema = map[string]any{
 			},
 		},
 	},
-	"required": []string{"explanation_markdown", "crops"},
+	"required": []string{"explanation_markdown", "memory", "crops"},
 }
 
 var sectionsSchema = map[string]any{
@@ -163,8 +194,8 @@ func ValidateSections(sections []Section, pageCount int) error {
 	return nil
 }
 
-func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool, targetLanguage, priorContext string) (SectionExplanation, error) {
-	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages, targetLanguage, priorContext)
+func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, targetLanguage, priorContext string) (SectionExplanation, error) {
+	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, targetLanguage, priorContext)
 
 	raw, err := p.GenerateJSONWithImages(ctx, model, prompt, pagePaths, sectionExplanationSchema)
 	if err != nil {
@@ -177,6 +208,7 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 	}
 
 	exp.Markdown = strings.TrimSpace(exp.Markdown)
+	exp.Memory = cleanSectionMemory(exp.Memory)
 	for i := range exp.Crops {
 		exp.Crops[i].ID = strings.TrimSpace(exp.Crops[i].ID)
 		exp.Crops[i].AltText = strings.TrimSpace(exp.Crops[i].AltText)
@@ -188,7 +220,34 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 	return exp, nil
 }
 
-func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool, targetLanguage, priorContext string) string {
+func cleanSectionMemory(memory SectionMemory) SectionMemory {
+	return SectionMemory{
+		IntroducedTerms:     cleanMemoryItems(memory.IntroducedTerms, 8),
+		Formulas:            cleanMemoryItems(memory.Formulas, 8),
+		RecurringPrinciples: cleanMemoryItems(memory.RecurringPrinciples, 8),
+		OpenThreads:         cleanMemoryItems(memory.OpenThreads, 8),
+	}
+}
+
+func cleanMemoryItems(items []string, limit int) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, item := range items {
+		item = strings.Join(strings.Fields(item), " ")
+		key := strings.ToLower(item)
+		if item == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, targetLanguage, priorContext string) string {
 	var imageIndexGuide strings.Builder
 	for i := 1; i <= pageCount; i++ {
 		if i > 1 {
@@ -197,7 +256,7 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 		fmt.Fprintf(&imageIndexGuide, "  image_index %d = document page %d", i, startPage+i-1)
 	}
 
-	imageRules := `Image crop rules:
+	imageRules := fmt.Sprintf(`Image crop rules:
 - Return JSON with "explanation_markdown" and "crops".
 - "explanation_markdown" contains the notes themselves and may include image placeholders.
 - Include crops only when a visual region materially improves understanding, such as diagrams,
@@ -219,16 +278,7 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
   provided image_index. If the right visual is not present in the provided section images, omit
   the placeholder and explain the concept in prose.
 - Write alt_text as one concise plain-text sentence. Do not use Markdown, LaTeX syntax, dollar
-  delimiters, backslash commands, or raw formulas. Describe formulas in words instead.`
-	if !includeImages {
-		imageRules = `Image crop rules:
-- Return JSON with "explanation_markdown" and "crops".
-- Do not include image placeholders in "explanation_markdown".
-- Return an empty array for "crops".
-- Still use the provided page images as source material for the written explanation.`
-	} else {
-		imageRules = fmt.Sprintf(imageRules, sectionNumber, sectionNumber, imageIndexGuide.String())
-	}
+  delimiters, backslash commands, or raw formulas. Describe formulas in words instead.`, sectionNumber, sectionNumber, imageIndexGuide.String())
 
 	languageRule := "- Write in the same language as the document."
 	if strings.TrimSpace(targetLanguage) != "" {
@@ -242,73 +292,53 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 Earlier-section context:
 %s
 
-Use this only to avoid re-teaching material that has already been explained. If the current pages
-repeat an earlier definition, formula, benchmark category, or general principle, mention it only
-briefly and focus on the new detail, contrast, number, example, or exception added by this section.
-Do not omit genuinely new source content merely because it uses a previously introduced term.`, priorContext)
+Use this to avoid re-teaching definitions, formulas, or principles that were already established.
+Still explain any new examples, caveats, numbers, assumptions, contrasts, or extensions in the
+current pages.`, priorContext)
 	}
 
-	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
-The section spans %d page(s), provided as images in order.
+	return fmt.Sprintf(`Produce complete study notes for the section "%s" (pages %d-%d).
+The section spans %d page(s), provided as images in order. The notes must teach the material
+directly and be understandable without the source document.
 
-Your goal is to produce complete study notes written in flowing prose. The notes should
-read like a well-written textbook explanation — not like a structured outline or a list of
-bullet points. A reader should be able to understand the material deeply from your notes alone.
-Cover each distinct source idea once, and be precise in wording: shorter output is desirable
-when it removes repeated explanations, row-by-row transcription, broad recap, or low-information
-prose. Do not use the saved space to add more detail elsewhere.
+Coverage contract:
+- Cover each distinct source concept, claim, definition, formula, example, caveat, comparison,
+  and reasoning step exactly once.
+- Preserve numbers, formulas, worked-example steps, named methods, conditions, source examples,
+  concrete contrasts, and intuition that explains why a distinction matters.
+- Compress only true duplication: repeated wording, repeated table rows, broad recaps, or examples
+  that add no new mechanism, number, contrast, caveat, or interpretation.
+- Do not invent content, add unsupported importance claims, or add broad real-world commentary.
 
-Writing style rules (follow these strictly):
-- Write in connected paragraphs. Avoid bullet lists except for short enumerations of truly
-  parallel items (e.g. a list of algorithm steps, a list of named properties). Never use
-  bullets as a substitute for a sentence.
-- Use '###' sub-headings only to mark a genuine new sub-topic within the section. Do not
-  create a sub-heading for every concept. Several related concepts can live in one paragraph
-  under the same heading.
-- Bold text ($**term**$) only when introducing a technical term for the first time, inline
-  in a sentence (e.g. "this is called **entropy**"). Do not use bold as a label prefix
-  like "**Definition:**" or "**Key point:**".
-- Reproduce every formula exactly using LaTeX ($...$ inline or $$...$$ display). Introduce
-  each formula in a sentence that explains what its symbols mean.
-- When a diagram or figure is important, describe what it shows in plain prose and integrate
-  that description into the surrounding explanation. Do not create a separate "Diagram:" section.
-- Work through examples step by step in prose, including all numbers and intermediate steps.
-- Capture motivation and reasoning — not just "what" but "why" and "when".
-- Write in a direct explanatory voice, as if the notes themselves are teaching the material.
-- Do not refer to slides, pages, figures, or the document as an external source unless that
-  reference is genuinely required to understand the content.
-- Rewrite source-reporting phrasing into direct exposition. Avoid wording such as "the slide says",
-  "the slides show", "this page introduces", "the figure illustrates", or "the document states".
-- Every sentence must do at least one concrete job: explain source content, define a term,
-  connect two specific ideas, work through an example, interpret a formula or diagram, or state
-  a necessary caveat.
-- Do not add generic concluding sentences to paragraphs. Once a concept is clear, stop instead
-  of restating it in broader terms.
-- Do not repeat the same general principle after each example. State a general interpretation
-  once, then use later examples only to add new concrete facts, contrasts, numbers, or mechanisms.
-- Do not re-define terms, formulas, organizations, benchmark families, or design principles that
-  have already been introduced in earlier-section context unless the current pages add a concrete
-  new nuance.
-- If the pages first give an overview list and then later give a dedicated slide/subtopic for one
-  item from that list, name the item briefly in the overview and reserve the actual explanation
-  for the dedicated treatment. Do not explain it fully in both places.
-- Do not add importance, relevance, or real-world commentary unless the source supports it or it
-  is necessary to understand the concept.
-- Do not write vague synthesis such as "this approximates real systems" unless it is tied to
-  concrete details from the provided pages.
+Writing contract:
+- Write connected paragraphs in a direct explanatory voice, like a careful textbook explanation.
+  Use bullets only for true parallel lists or algorithm steps.
+- Use '###' headings only for genuine subtopics. Bold a technical term only at first introduction,
+  inline in a sentence.
+- Rewrite source-reporting phrasing into direct exposition. Avoid "the slide says", "this page
+  shows", "the figure illustrates", and similar wording.
+- Every sentence must define, explain, connect, calculate, compare, qualify, or interpret something
+  concrete. Include short connective explanations when they help a reader understand why two ideas
+  differ, how an example demonstrates a concept, or when a caveat matters.
+- Do not collapse a source explanation into a terse definition if the source gives a motivating
+  scenario, contrast, or example. Preserve that teaching move in concise prose.
+- Stop when the concept is clear; do not add recap or conclusion paragraphs.
+- If an overview list is followed by a dedicated treatment, name the item briefly in the overview
+  and save the explanation for the dedicated treatment.
 
-Content rules:
-- Cover every distinct concept, claim, definition, formula, example, caveat, and reasoning step
-  present on the pages exactly once. Compress redundant phrasing, but do not omit distinct content.
-- Do not invent content not present on the pages.
-- Do not add introductions, conclusions, or meta-commentary.
-- Do not add a final synthesis paragraph by default. Add one only when it connects multiple
-  concrete ideas in a way that is not already clear from the preceding prose, and never use it
-  to recap each paragraph individually.
-- When explaining tables or score reports, do not transcribe every row or field by default.
-  Explain the table's structure, the meaning of its columns, notable patterns, and at most a few
-  representative values unless the source explicitly works through every row. Prefer grouped
-  comparisons over row-by-row narration.
+Formulas, examples, and visuals:
+- Reproduce formulas exactly in LaTeX ($...$ inline or $$...$$ display) and explain the symbols.
+- Work through examples in prose with all numbers and intermediate steps present in the source.
+- Explain important diagrams, tables, plots, and figures in prose integrated with the surrounding
+  explanation.
+
+Memory contract:
+- Return compact memory for later sections. Include only established items that would prevent
+  unnecessary re-explanation later.
+- introduced_terms: terms fully defined here.
+- formulas: formulas established here, with short meanings.
+- recurring_principles: reusable principles or assumptions.
+- open_threads: concepts introduced here but not fully developed yet.
 %s
 
 %s
@@ -335,21 +365,16 @@ func BuildPriorSectionContext(sections []SectionWithExplanation, maxChars int) s
 		return ""
 	}
 
-	var b strings.Builder
 	var lines []string
 	for _, section := range sections {
-		line := priorSectionContextLine(section)
-		if line == "" {
-			continue
-		}
-		lines = append(lines, line)
+		lines = append(lines, priorSectionContextLines(section)...)
 	}
 	if len(lines) == 0 {
 		return ""
 	}
 
 	var selected []string
-	used := len("Already covered:\n")
+	used := len("Already established:\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if used+len(lines[i])+1 > maxChars {
 			break
@@ -358,7 +383,8 @@ func BuildPriorSectionContext(sections []SectionWithExplanation, maxChars int) s
 		selected = append(selected, lines[i])
 	}
 
-	b.WriteString("Already covered:\n")
+	var b strings.Builder
+	b.WriteString("Already established:\n")
 	for i := len(selected) - 1; i >= 0; i-- {
 		b.WriteString(selected[i])
 		b.WriteByte('\n')
@@ -367,47 +393,23 @@ func BuildPriorSectionContext(sections []SectionWithExplanation, maxChars int) s
 	return strings.TrimSpace(b.String())
 }
 
-func priorSectionContextLine(section SectionWithExplanation) string {
-	var parts []string
-	if headings := markdownHeadings(section.Explanation); len(headings) > 0 {
-		parts = append(parts, "subtopics: "+strings.Join(headings, ", "))
-	}
-	if terms := boldTerms(section.Explanation); len(terms) > 0 {
-		parts = append(parts, "introduced terms: "+strings.Join(terms, ", "))
-	}
-
-	pageLabel := fmt.Sprintf("pages %d-%d", section.StartPage, section.EndPage)
-	if section.StartPage == section.EndPage {
-		pageLabel = fmt.Sprintf("page %d", section.StartPage)
-	}
-	if len(parts) == 0 {
-		return fmt.Sprintf("- %s (%s)", section.Title, pageLabel)
-	}
-	return fmt.Sprintf("- %s (%s): %s", section.Title, pageLabel, strings.Join(parts, "; "))
-}
-
-func markdownHeadings(markdown string) []string {
-	return uniqueMatches(markdown, regexp.MustCompile(`(?m)^###\s+(.+?)\s*$`), 8)
-}
-
-func boldTerms(markdown string) []string {
-	return uniqueMatches(markdown, regexp.MustCompile(`\*\*([^*\n]{2,80})\*\*`), 12)
-}
-
-func uniqueMatches(text string, re *regexp.Regexp, limit int) []string {
-	var values []string
-	seen := make(map[string]bool)
-	for _, match := range re.FindAllStringSubmatch(text, -1) {
-		value := strings.TrimSpace(match[1])
-		key := strings.ToLower(value)
-		if value == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		values = append(values, value)
-		if len(values) >= limit {
-			break
+func priorSectionContextLines(section SectionWithExplanation) []string {
+	var lines []string
+	prefix := fmt.Sprintf("%s:", section.Title)
+	appendItems := func(label string, items []string) {
+		for _, item := range items {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("- %s %s: %s", prefix, label, item))
 		}
 	}
-	return values
+
+	appendItems("term", section.Memory.IntroducedTerms)
+	appendItems("formula", section.Memory.Formulas)
+	appendItems("principle", section.Memory.RecurringPrinciples)
+	appendItems("open thread", section.Memory.OpenThreads)
+
+	return lines
 }
