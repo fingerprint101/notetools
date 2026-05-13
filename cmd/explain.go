@@ -92,7 +92,8 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "    Explaining %d page(s)...\n", len(sectionPages))
-		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg, targetLanguage)
+		priorContext := docs.BuildPriorSectionContext(explained, 3500)
+		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg, targetLanguage, priorContext)
 		if err != nil {
 			return err
 		}

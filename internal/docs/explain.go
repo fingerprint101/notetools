@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/fingerprint/notetools/internal/llm"
@@ -162,8 +163,8 @@ func ValidateSections(sections []Section, pageCount int) error {
 	return nil
 }
 
-func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool, targetLanguage string) (SectionExplanation, error) {
-	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages, targetLanguage)
+func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool, targetLanguage, priorContext string) (SectionExplanation, error) {
+	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages, targetLanguage, priorContext)
 
 	raw, err := p.GenerateJSONWithImages(ctx, model, prompt, pagePaths, sectionExplanationSchema)
 	if err != nil {
@@ -187,7 +188,7 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 	return exp, nil
 }
 
-func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool, targetLanguage string) string {
+func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool, targetLanguage, priorContext string) string {
 	var imageIndexGuide strings.Builder
 	for i := 1; i <= pageCount; i++ {
 		if i > 1 {
@@ -234,14 +235,28 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 		languageRule = fmt.Sprintf("- Write the explanation in %s, even if the source document is in another language.", strings.TrimSpace(targetLanguage))
 	}
 
+	priorContext = strings.TrimSpace(priorContext)
+	priorContextRule := ""
+	if priorContext != "" {
+		priorContextRule = fmt.Sprintf(`
+Earlier-section context:
+%s
+
+Use this only to avoid re-teaching material that has already been explained. If the current pages
+repeat an earlier definition, formula, benchmark category, or general principle, mention it only
+briefly and focus on the new detail, contrast, number, example, or exception added by this section.
+Do not omit genuinely new source content merely because it uses a previously introduced term.`, priorContext)
+	}
+
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
-Your goal is to produce exhaustive study notes written in flowing prose. The notes should
+Your goal is to produce complete study notes written in flowing prose. The notes should
 read like a well-written textbook explanation — not like a structured outline or a list of
 bullet points. A reader should be able to understand the material deeply from your notes alone.
-Be exhaustive about the source material, but precise in wording: shorter output is desirable
-only when it removes low-information prose, not when it removes distinct content.
+Cover each distinct source idea once, and be precise in wording: shorter output is desirable
+when it removes repeated explanations, row-by-row transcription, broad recap, or low-information
+prose. Do not use the saved space to add more detail elsewhere.
 
 Writing style rules (follow these strictly):
 - Write in connected paragraphs. Avoid bullet lists except for short enumerations of truly
@@ -271,6 +286,12 @@ Writing style rules (follow these strictly):
   of restating it in broader terms.
 - Do not repeat the same general principle after each example. State a general interpretation
   once, then use later examples only to add new concrete facts, contrasts, numbers, or mechanisms.
+- Do not re-define terms, formulas, organizations, benchmark families, or design principles that
+  have already been introduced in earlier-section context unless the current pages add a concrete
+  new nuance.
+- If the pages first give an overview list and then later give a dedicated slide/subtopic for one
+  item from that list, name the item briefly in the overview and reserve the actual explanation
+  for the dedicated treatment. Do not explain it fully in both places.
 - Do not add importance, relevance, or real-world commentary unless the source supports it or it
   is necessary to understand the concept.
 - Do not write vague synthesis such as "this approximates real systems" unless it is tied to
@@ -278,19 +299,21 @@ Writing style rules (follow these strictly):
 
 Content rules:
 - Cover every distinct concept, claim, definition, formula, example, caveat, and reasoning step
-  present on the pages. Compress redundant phrasing, but do not omit distinct content.
+  present on the pages exactly once. Compress redundant phrasing, but do not omit distinct content.
 - Do not invent content not present on the pages.
 - Do not add introductions, conclusions, or meta-commentary.
 - Do not add a final synthesis paragraph by default. Add one only when it connects multiple
   concrete ideas in a way that is not already clear from the preceding prose, and never use it
   to recap each paragraph individually.
 - When explaining tables or score reports, do not transcribe every row or field by default.
-  Explain the table's structure, the meaning of its columns, notable patterns, and only the
-  values that are central to understanding the concept, comparison, or worked example.
+  Explain the table's structure, the meaning of its columns, notable patterns, and at most a few
+  representative values unless the source explicitly works through every row. Prefer grouped
+  comparisons over row-by-row narration.
 %s
 
 %s
-- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, languageRule, imageRules)
+%s
+- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, languageRule, priorContextRule, imageRules)
 }
 
 func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) string {
@@ -305,4 +328,86 @@ func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) s
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(s.Explanation))
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func BuildPriorSectionContext(sections []SectionWithExplanation, maxChars int) string {
+	if len(sections) == 0 || maxChars <= 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	var lines []string
+	for _, section := range sections {
+		line := priorSectionContextLine(section)
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var selected []string
+	used := len("Already covered:\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if used+len(lines[i])+1 > maxChars {
+			break
+		}
+		used += len(lines[i]) + 1
+		selected = append(selected, lines[i])
+	}
+
+	b.WriteString("Already covered:\n")
+	for i := len(selected) - 1; i >= 0; i-- {
+		b.WriteString(selected[i])
+		b.WriteByte('\n')
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func priorSectionContextLine(section SectionWithExplanation) string {
+	var parts []string
+	if headings := markdownHeadings(section.Explanation); len(headings) > 0 {
+		parts = append(parts, "subtopics: "+strings.Join(headings, ", "))
+	}
+	if terms := boldTerms(section.Explanation); len(terms) > 0 {
+		parts = append(parts, "introduced terms: "+strings.Join(terms, ", "))
+	}
+
+	pageLabel := fmt.Sprintf("pages %d-%d", section.StartPage, section.EndPage)
+	if section.StartPage == section.EndPage {
+		pageLabel = fmt.Sprintf("page %d", section.StartPage)
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("- %s (%s)", section.Title, pageLabel)
+	}
+	return fmt.Sprintf("- %s (%s): %s", section.Title, pageLabel, strings.Join(parts, "; "))
+}
+
+func markdownHeadings(markdown string) []string {
+	return uniqueMatches(markdown, regexp.MustCompile(`(?m)^###\s+(.+?)\s*$`), 8)
+}
+
+func boldTerms(markdown string) []string {
+	return uniqueMatches(markdown, regexp.MustCompile(`\*\*([^*\n]{2,80})\*\*`), 12)
+}
+
+func uniqueMatches(text string, re *regexp.Regexp, limit int) []string {
+	var values []string
+	seen := make(map[string]bool)
+	for _, match := range re.FindAllStringSubmatch(text, -1) {
+		value := strings.TrimSpace(match[1])
+		key := strings.ToLower(value)
+		if value == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		values = append(values, value)
+		if len(values) >= limit {
+			break
+		}
+	}
+	return values
 }
