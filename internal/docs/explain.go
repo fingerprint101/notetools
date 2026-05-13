@@ -95,7 +95,7 @@ Task:
 - For each section, provide its title, the starting page number, and the ending page number.
 - Pages are 1-indexed.
 - Sections must be contiguous, non-overlapping, and cover the entire document.
-- Aim for broad, high-level sections: each section should cover multiple related pages. A 20-30 page document should have roughly 4-6 sections, not one per topic or per slide.
+- Aim for broad, high-level sections: each section should cover multiple related pages.
 - Give each section a concise, descriptive title.
 - Reply only with valid JSON matching the required schema.`, pdfPath)
 
@@ -151,8 +151,8 @@ func ValidateSections(sections []Section, pageCount int) error {
 	return nil
 }
 
-func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool) (SectionExplanation, error) {
-	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages)
+func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool, targetLanguage string) (SectionExplanation, error) {
+	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages, targetLanguage)
 
 	raw, err := p.GenerateJSONWithImages(ctx, model, prompt, pagePaths, sectionExplanationSchema)
 	if err != nil {
@@ -176,7 +176,7 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 	return exp, nil
 }
 
-func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool) string {
+func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool, targetLanguage string) string {
 	var imageIndexGuide strings.Builder
 	for i := 1; i <= pageCount; i++ {
 		if i > 1 {
@@ -218,6 +218,11 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 		imageRules = fmt.Sprintf(imageRules, sectionNumber, sectionNumber, imageIndexGuide.String())
 	}
 
+	languageRule := "- Write in the same language as the document."
+	if strings.TrimSpace(targetLanguage) != "" {
+		languageRule = fmt.Sprintf("- Write the explanation in %s, even if the source document is in another language.", strings.TrimSpace(targetLanguage))
+	}
+
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
@@ -251,10 +256,10 @@ Content rules:
 - Do not summarize or compress — cover every concept, claim, definition, and example fully.
 - Do not invent content not present on the pages.
 - Do not add introductions, conclusions, or meta-commentary.
-- Write in the same language as the document.
+%s
 
 %s
-- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, imageRules)
+- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, languageRule, imageRules)
 }
 
 func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) string {

@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	explainOutput string
-	explainNoImg  bool
+	explainOutput   string
+	explainLanguage string
+	explainNoImg    bool
 )
 
 var explainCmd = &cobra.Command{
@@ -28,6 +29,7 @@ all explanations chained together.`,
 
 func init() {
 	explainCmd.Flags().StringVarP(&explainOutput, "output", "o", "", "output file path (default: {stem}.md)")
+	explainCmd.Flags().StringVarP(&explainLanguage, "language", "l", "", "target language for the generated explanation (default: same as document)")
 	explainCmd.Flags().BoolVar(&explainNoImg, "noimg", false, "skip cropped images in the output Markdown")
 	rootCmd.AddCommand(explainCmd)
 }
@@ -37,6 +39,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(pdfPath); err != nil {
 		return fmt.Errorf("file not found: %s", pdfPath)
 	}
+	targetLanguage := strings.TrimSpace(explainLanguage)
 
 	stem := strings.TrimSuffix(filepath.Base(pdfPath), filepath.Ext(pdfPath))
 	outputPath := explainOutput
@@ -52,6 +55,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}
 
 	p, model := providerFor("explain")
+	if targetLanguage != "" {
+		fmt.Fprintf(os.Stderr, "Target language: %s\n", targetLanguage)
+	}
 
 	fmt.Fprintf(os.Stderr, "Rendering PDF pages at 150 DPI...\n")
 	pages, err := docs.RenderPages(pdfPath, 150)
@@ -86,7 +92,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "    Explaining %d page(s)...\n", len(sectionPages))
-		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg)
+		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg, targetLanguage)
 		if err != nil {
 			return err
 		}
@@ -108,8 +114,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	docTitle := stem + " - explained"
-	result := docs.RenderExplainMarkdown(docTitle, explained)
+	result := docs.RenderExplainMarkdown(stem, explained)
 
 	if err := os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
 		return err

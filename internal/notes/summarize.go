@@ -31,8 +31,8 @@ Mandatory constraints:
 - Do not include image captions, slide references, or decorative source artifacts unless their content is essential.
 - Do not omit a topic that appears in the original note's section; compress it instead.
 - Preserve important numeric values, named concepts, formulas, definitions, contrasts, and cause/effect explanations.
+- Format math formulas for Obsidian Markdown: use $...$ for inline math and $$...$$ for display math.
 - Do not add concepts that are not supported by the note.
-- Write in the same language as the note.
 - Return only the summary Markdown, with no preface or commentary.
 
 Note:

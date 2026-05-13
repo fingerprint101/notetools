@@ -24,8 +24,6 @@ CRITICAL RULES:
   information into the target language while preserving its meaning and detail.
 - Preserve technical terms, formulas, names, code, commands, and identifiers exactly when
   translating them would be incorrect or unnatural.
-- If SNIPPET 2 is empty, infer the target language, style, and heading conventions from the
-  TARGET NOTE CONTEXT when it is provided.
 - Write in a unified single-author voice, as if the merged note directly explains the subject.
 - Do not describe the content as coming from slides, notes, or another source unless that
   provenance is itself essential.
@@ -56,9 +54,8 @@ func buildMergePrompt(snippet1, snippet2 string, opts MergeOptions) string {
 	targetContext := ""
 	if opts.TargetContext != "" {
 		targetContext = fmt.Sprintf(`TARGET NOTE CONTEXT:
-Use this only to infer the target note's language, tone, and formatting conventions when
-SNIPPET 2 does not provide enough context. Do not merge or copy unrelated content from this
-context unless it is also present in the snippets.
+Use this only to infer the target note's tone and formatting conventions when helpful.
+Do not merge or copy unrelated content from this context unless it is also present in the snippets.
 %s
 
 `, opts.TargetContext)

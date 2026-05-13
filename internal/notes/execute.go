@@ -91,15 +91,7 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 				notify(progress)
 			}
 
-			merged, err := MergeWithOptions(ctx, p, model, sourceSnippet, "", MergeOptions{
-				Instructions:  buildInsertInstructions(instructions),
-				TargetContext: targetContext,
-			})
-			if err != nil {
-				return fmt.Errorf("insert %q failed: %w", mapping.Title, err)
-			}
-
-			insertLines := strings.Split(merged, "\n")
+			insertLines := strings.Split(sourceSnippet, "\n")
 			targetLines = insertRange(targetLines, insertAfter, insertLines)
 			recalculateAfterInsert(mappings[i+1:], insertAfter, len(insertLines))
 		}
@@ -110,14 +102,6 @@ func ExecutePlan(ctx context.Context, p llm.Provider, model string, doc PlanDocu
 	}
 
 	return nil
-}
-
-func buildInsertInstructions(extra string) string {
-	base := "SNIPPET 2 is intentionally empty because the target note does not yet cover this section. Preserve the structure and detail from SNIPPET 1 as a standalone section that can be inserted directly into the target note. Adapt heading level, phrasing, and language to fit the target note's style. Use the target note's language, translating SNIPPET 1 when needed."
-	if extra == "" {
-		return base
-	}
-	return base + " " + extra
 }
 
 func buildTargetContext(content string, charBudget int) string {

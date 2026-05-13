@@ -52,6 +52,7 @@ For `claude` and `codex`, local file or image context is passed by path in the p
 
 ```bash
 nt explain lecture.pdf      # or: nt e lecture.pdf
+nt explain lecture.pdf -l Italian
 # => lecture.md
 ```
 
