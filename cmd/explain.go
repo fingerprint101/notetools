@@ -71,7 +71,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}()
 
 	fmt.Fprintf(os.Stderr, "Identifying sections in %s...\n", pdfPath)
-	sections, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath)
+	sections, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath, len(pages))
 	if err != nil {
 		return err
 	}

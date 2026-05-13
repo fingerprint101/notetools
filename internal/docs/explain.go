@@ -87,17 +87,28 @@ var sectionsSchema = map[string]any{
 	"required": []string{"sections"},
 }
 
-func IdentifySections(ctx context.Context, p llm.Provider, model, pdfPath string) ([]Section, error) {
+func IdentifySections(ctx context.Context, p llm.Provider, model, pdfPath string, pageCount int) ([]Section, error) {
 	prompt := fmt.Sprintf(`You are analyzing a PDF document. Here is the document: %s
+The document has %d page(s).
 
 Task:
-- Identify the major thematic sections in the document.
+- Identify the natural thematic sections in the document at lecture-unit granularity.
 - For each section, provide its title, the starting page number, and the ending page number.
 - Pages are 1-indexed.
 - Sections must be contiguous, non-overlapping, and cover the entire document.
-- Aim for broad, high-level sections: each section should cover multiple related pages.
+- Do not collapse every document into only a handful of broad chapters, but also do not split
+  merely because a new example, table, benchmark, formula, or worked case appears. Split only
+  when the document moves to a substantially new lecture unit or sustained topic.
+- Do not create one section per slide or page. A section should usually cover a coherent run of
+  related pages.
+- For slide decks and technical lecture notes, prefer section ranges of about 7-15 pages when
+  the topic flow allows it. Shorter sections are fine for brief transitions, but avoid creating
+  many 2-4 page sections unless the document genuinely changes topic that often.
+- As a rough target, a 50-70 page slide deck usually needs about 5-8 sections, a 70-100 page
+  document usually needs about 7-10 sections, and a 100+ page document usually needs about 10-14
+  sections. Adjust to the document's actual topic boundaries.
 - Give each section a concise, descriptive title.
-- Reply only with valid JSON matching the required schema.`, pdfPath)
+- Reply only with valid JSON matching the required schema.`, pdfPath, pageCount)
 
 	raw, err := p.GenerateJSON(ctx, model, prompt, sectionsSchema)
 	if err != nil {
@@ -226,9 +237,11 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
-Your goal is to produce dense, exhaustive notes written in flowing prose. The notes should
+Your goal is to produce exhaustive study notes written in flowing prose. The notes should
 read like a well-written textbook explanation — not like a structured outline or a list of
 bullet points. A reader should be able to understand the material deeply from your notes alone.
+Be exhaustive about the source material, but precise in wording: shorter output is desirable
+only when it removes low-information prose, not when it removes distinct content.
 
 Writing style rules (follow these strictly):
 - Write in connected paragraphs. Avoid bullet lists except for short enumerations of truly
@@ -251,11 +264,29 @@ Writing style rules (follow these strictly):
   reference is genuinely required to understand the content.
 - Rewrite source-reporting phrasing into direct exposition. Avoid wording such as "the slide says",
   "the slides show", "this page introduces", "the figure illustrates", or "the document states".
+- Every sentence must do at least one concrete job: explain source content, define a term,
+  connect two specific ideas, work through an example, interpret a formula or diagram, or state
+  a necessary caveat.
+- Do not add generic concluding sentences to paragraphs. Once a concept is clear, stop instead
+  of restating it in broader terms.
+- Do not repeat the same general principle after each example. State a general interpretation
+  once, then use later examples only to add new concrete facts, contrasts, numbers, or mechanisms.
+- Do not add importance, relevance, or real-world commentary unless the source supports it or it
+  is necessary to understand the concept.
+- Do not write vague synthesis such as "this approximates real systems" unless it is tied to
+  concrete details from the provided pages.
 
 Content rules:
-- Do not summarize or compress — cover every concept, claim, definition, and example fully.
+- Cover every distinct concept, claim, definition, formula, example, caveat, and reasoning step
+  present on the pages. Compress redundant phrasing, but do not omit distinct content.
 - Do not invent content not present on the pages.
 - Do not add introductions, conclusions, or meta-commentary.
+- Do not add a final synthesis paragraph by default. Add one only when it connects multiple
+  concrete ideas in a way that is not already clear from the preceding prose, and never use it
+  to recap each paragraph individually.
+- When explaining tables or score reports, do not transcribe every row or field by default.
+  Explain the table's structure, the meaning of its columns, notable patterns, and only the
+  values that are central to understanding the concept, comparison, or worked example.
 %s
 
 %s
