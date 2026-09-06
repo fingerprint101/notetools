@@ -2,7 +2,7 @@
 
 AI CLI for document explanation, transcript cleaning, note merging, and coverage checks. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), or [Codex](https://github.com/openai/codex).
 
-- **`nt explain`** (`e`) — Identify sections in a PDF and explain each page
+- **`nt explain`** (`e`) — Turn a PDF into concise study notes with clear priorities
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
 - **`nt merge`** (`m`) — Merge two Markdown notes, or selected snippets from them
 - **`nt check`** (`ck`) — Check whether a target contains all information from source files
@@ -52,9 +52,23 @@ For `claude` and `codex`, local file or image context is passed by path in the p
 
 ```bash
 nt explain lecture.pdf      # or: nt e lecture.pdf
-nt explain lecture.pdf -l Italian
+nt explain lecture.pdf --language Italian
+nt explain lecture.pdf -l English
 # => lecture.md
 ```
+
+Explains the core concepts in short paragraphs, with selective bold emphasis and
+optional supporting details separated from the main explanation. Keeps essential
+formulas and reasoning, while compressing incidental facts and repetitive examples.
+Length adapts to the material, aiming for roughly 300–600 words per typical
+7–15 page section.
+
+Use `--language` (or `-l`) to choose the output language for the entire run,
+including document and section titles, explanations, and image descriptions.
+The default, `--language auto`, selects the document's predominant language once
+and reuses it for every section; ties or unidentifiable language fall back to English.
+Proper names, code, formulas, and established technical terms may retain their original form.
+Page references use numeric ranges so they do not introduce English labels into translated notes.
 
 ### Preview a file with line numbers
 

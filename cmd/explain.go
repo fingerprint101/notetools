@@ -19,17 +19,17 @@ var (
 var explainCmd = &cobra.Command{
 	Use:     "explain <pdf>",
 	Aliases: []string{"e"},
-	Short:   "Explain a PDF: identify sections and explain each page",
+	Short:   "Turn a PDF into concise study notes with clear priorities",
 	Long: `Takes a PDF document, identifies coherent thematic sections by page range,
-then explains each page individually. Outputs a single Markdown file with
-all explanations chained together.`,
+then explains the core concepts with selective emphasis and brief supporting
+details. Outputs a single Markdown file organized by section.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runExplain,
 }
 
 func init() {
 	explainCmd.Flags().StringVarP(&explainOutput, "output", "o", "", "output file path (default: {stem}.md)")
-	explainCmd.Flags().StringVarP(&explainLanguage, "language", "l", "", "target language for the generated explanation (default: same as document)")
+	explainCmd.Flags().StringVarP(&explainLanguage, "language", "l", "auto", "output language for all notes and titles (e.g. Italian, English; auto detects once per document)")
 	explainCmd.Flags().BoolVar(&explainNoImg, "noimg", false, "skip cropped images in the output Markdown")
 	rootCmd.AddCommand(explainCmd)
 }
@@ -40,6 +40,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("file not found: %s", pdfPath)
 	}
 	targetLanguage := strings.TrimSpace(explainLanguage)
+	if targetLanguage == "" {
+		return fmt.Errorf("language must not be empty; use --language auto to detect it from the document")
+	}
 
 	stem := strings.TrimSuffix(filepath.Base(pdfPath), filepath.Ext(pdfPath))
 	outputPath := explainOutput
@@ -55,9 +58,6 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}
 
 	p, model := providerFor("explain")
-	if targetLanguage != "" {
-		fmt.Fprintf(os.Stderr, "Target language: %s\n", targetLanguage)
-	}
 
 	fmt.Fprintf(os.Stderr, "Rendering PDF pages at 150 DPI...\n")
 	pages, err := docs.RenderPages(pdfPath, 150)
@@ -71,10 +71,13 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}()
 
 	fmt.Fprintf(os.Stderr, "Identifying sections in %s...\n", pdfPath)
-	sections, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath, len(pages))
+	plan, err := docs.IdentifySections(cmd.Context(), p, model, pdfPath, len(pages), targetLanguage)
 	if err != nil {
 		return err
 	}
+	sections := plan.Sections
+	targetLanguage = plan.Language
+	fmt.Fprintf(os.Stderr, "Output language: %s\n", targetLanguage)
 	if err := docs.ValidateSections(sections, len(pages)); err != nil {
 		return fmt.Errorf("invalid section plan: %w", err)
 	}
@@ -115,7 +118,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	result := docs.RenderExplainMarkdown(stem, explained)
+	result := docs.RenderExplainMarkdown(plan.DocumentTitle, explained)
 
 	if err := os.WriteFile(outputPath, []byte(result), 0o644); err != nil {
 		return err

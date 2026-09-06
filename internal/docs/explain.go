@@ -36,8 +36,10 @@ type SectionExplanation struct {
 	Crops    []Crop `json:"crops"`
 }
 
-type sectionsResponse struct {
-	Sections []Section `json:"sections"`
+type SectionPlan struct {
+	Language      string    `json:"language"`
+	DocumentTitle string    `json:"document_title"`
+	Sections      []Section `json:"sections"`
 }
 
 var sectionExplanationSchema = map[string]any{
@@ -70,6 +72,8 @@ var sectionsSchema = map[string]any{
 	"type":                 "object",
 	"additionalProperties": false,
 	"properties": map[string]any{
+		"language":       map[string]any{"type": "string", "minLength": 1},
+		"document_title": map[string]any{"type": "string", "minLength": 1},
 		"sections": map[string]any{
 			"type":     "array",
 			"minItems": 1,
@@ -85,12 +89,24 @@ var sectionsSchema = map[string]any{
 			},
 		},
 	},
-	"required": []string{"sections"},
+	"required": []string{"language", "document_title", "sections"},
 }
 
-func IdentifySections(ctx context.Context, p llm.Provider, model, pdfPath string, pageCount int) ([]Section, error) {
+func IdentifySections(ctx context.Context, p llm.Provider, model, pdfPath string, pageCount int, targetLanguage string) (SectionPlan, error) {
+	targetLanguage = strings.TrimSpace(targetLanguage)
+	languageSelection := `Determine the predominant language of the document as a whole and return its name in
+"language". If the document mixes languages equally or has no identifiable language, use English.
+Use this single language for "document_title" and every section title.`
+	if targetLanguage != "" && !strings.EqualFold(targetLanguage, "auto") {
+		languageSelection = fmt.Sprintf(`The requested output language is %q. Return this exact value in "language".
+Write "document_title" and every section title in this language, translating source titles
+where necessary. The source language and the language of these instructions do not override it.`, targetLanguage)
+	}
 	prompt := fmt.Sprintf(`You are analyzing a PDF document. Here is the document: %s
 The document has %d page(s).
+
+Output language:
+%s
 
 Task:
 - Identify the natural thematic sections in the document at lecture-unit granularity.
@@ -108,28 +124,41 @@ Task:
 - As a rough target, a 50-70 page slide deck usually needs about 5-8 sections, a 70-100 page
   document usually needs about 7-10 sections, and a 100+ page document usually needs about 10-14
   sections. Adjust to the document's actual topic boundaries.
-- Give each section a concise, descriptive title.
-- Reply only with valid JSON matching the required schema.`, pdfPath, pageCount)
+- Give the document and each section a concise, descriptive title in the selected output language.
+- Reply only with valid JSON matching the required schema.`, pdfPath, pageCount, languageSelection)
 
 	raw, err := p.GenerateJSON(ctx, model, prompt, sectionsSchema)
 	if err != nil {
-		return nil, fmt.Errorf("section identification failed: %w", err)
+		return SectionPlan{}, fmt.Errorf("section identification failed: %w", err)
 	}
 
-	var resp sectionsResponse
+	var resp SectionPlan
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse sections JSON: %w", err)
+		return SectionPlan{}, fmt.Errorf("failed to parse sections JSON: %w", err)
 	}
 
 	if len(resp.Sections) == 0 {
-		return nil, fmt.Errorf("model returned an empty section list")
+		return SectionPlan{}, fmt.Errorf("model returned an empty section list")
+	}
+
+	resp.Language = strings.TrimSpace(resp.Language)
+	if targetLanguage != "" && !strings.EqualFold(targetLanguage, "auto") {
+		// Explicit user choice remains authoritative even if the model echoes a different name.
+		resp.Language = targetLanguage
+	}
+	if resp.Language == "" || strings.EqualFold(resp.Language, "auto") {
+		return SectionPlan{}, fmt.Errorf("model did not resolve an output language")
+	}
+	resp.DocumentTitle = strings.TrimSpace(resp.DocumentTitle)
+	if resp.DocumentTitle == "" {
+		return SectionPlan{}, fmt.Errorf("model returned an empty document title")
 	}
 
 	for i := range resp.Sections {
 		resp.Sections[i].Title = strings.TrimSpace(resp.Sections[i].Title)
 	}
 
-	return resp.Sections, nil
+	return resp, nil
 }
 
 func ValidateSections(sections []Section, pageCount int) error {
@@ -164,6 +193,10 @@ func ValidateSections(sections []Section, pageCount int) error {
 }
 
 func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool, targetLanguage, priorContext string) (SectionExplanation, error) {
+	targetLanguage = strings.TrimSpace(targetLanguage)
+	if targetLanguage == "" || strings.EqualFold(targetLanguage, "auto") {
+		return SectionExplanation{}, fmt.Errorf("explain section %q: output language must be resolved first", title)
+	}
 	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages, targetLanguage, priorContext)
 
 	raw, err := p.GenerateJSONWithImages(ctx, model, prompt, pagePaths, sectionExplanationSchema)
@@ -230,10 +263,15 @@ func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumb
 		imageRules = fmt.Sprintf(imageRules, sectionNumber, sectionNumber, imageIndexGuide.String())
 	}
 
-	languageRule := "- Write in the same language as the document."
-	if strings.TrimSpace(targetLanguage) != "" {
-		languageRule = fmt.Sprintf("- Write the explanation in %s, even if the source document is in another language.", strings.TrimSpace(targetLanguage))
-	}
+	languageRule := fmt.Sprintf(`Output language (mandatory for the entire section): %q.
+- Write all prose, headings, list items, table labels, captions, and crop alt_text in this language.
+- Translate source text rather than copying sentences in another language. Do not switch language
+  because the source pages, section title, earlier context, or these instructions use another one.
+- Keep proper names, code, mathematical notation, and established technical terms when translation
+  would be misleading. Explain such terms in the output language; do not add bilingual prose.
+- Keep JSON keys and image placeholder IDs unchanged.
+- Before returning the JSON, check every human-readable field and rewrite any unintended language
+  switches into the chosen output language.`, targetLanguage)
 
 	priorContext = strings.TrimSpace(priorContext)
 	priorContextRule := ""
@@ -245,71 +283,77 @@ Earlier-section context:
 Use this only to avoid re-teaching material that has already been explained. If the current pages
 repeat an earlier definition, formula, benchmark category, or general principle, mention it only
 briefly and focus on the new detail, contrast, number, example, or exception added by this section.
-Do not omit genuinely new source content merely because it uses a previously introduced term.`, priorContext)
+Preserve new core concepts and essential qualifications even when they use a previously
+introduced term; apply the same prioritization rules to new supporting details.`, priorContext)
 	}
 
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
-Your goal is to produce complete study notes written in flowing prose. The notes should
-read like a well-written textbook explanation — not like a structured outline or a list of
-bullet points. A reader should be able to understand the material deeply from your notes alone.
-Cover each distinct source idea once, and be precise in wording: shorter output is desirable
-when it removes repeated explanations, row-by-row transcription, broad recap, or low-information
-prose. Do not use the saved space to add more detail elsewhere.
-
-Writing style rules (follow these strictly):
-- Write in connected paragraphs. Avoid bullet lists except for short enumerations of truly
-  parallel items (e.g. a list of algorithm steps, a list of named properties). Never use
-  bullets as a substitute for a sentence.
-- Use '###' sub-headings only to mark a genuine new sub-topic within the section. Do not
-  create a sub-heading for every concept. Several related concepts can live in one paragraph
-  under the same heading.
-- Bold text ($**term**$) only when introducing a technical term for the first time, inline
-  in a sentence (e.g. "this is called **entropy**"). Do not use bold as a label prefix
-  like "**Definition:**" or "**Key point:**".
-- Reproduce every formula exactly using LaTeX ($...$ inline or $$...$$ display). Introduce
-  each formula in a sentence that explains what its symbols mean.
-- When a diagram or figure is important, describe what it shows in plain prose and integrate
-  that description into the surrounding explanation. Do not create a separate "Diagram:" section.
-- Work through examples step by step in prose, including all numbers and intermediate steps.
-- Capture motivation and reasoning — not just "what" but "why" and "when".
-- Write in a direct explanatory voice, as if the notes themselves are teaching the material.
-- Do not refer to slides, pages, figures, or the document as an external source unless that
-  reference is genuinely required to understand the content.
-- Rewrite source-reporting phrasing into direct exposition. Avoid wording such as "the slide says",
-  "the slides show", "this page introduces", "the figure illustrates", or "the document states".
-- Every sentence must do at least one concrete job: explain source content, define a term,
-  connect two specific ideas, work through an example, interpret a formula or diagram, or state
-  a necessary caveat.
-- Do not add generic concluding sentences to paragraphs. Once a concept is clear, stop instead
-  of restating it in broader terms.
-- Do not repeat the same general principle after each example. State a general interpretation
-  once, then use later examples only to add new concrete facts, contrasts, numbers, or mechanisms.
-- Do not re-define terms, formulas, organizations, benchmark families, or design principles that
-  have already been introduced in earlier-section context unless the current pages add a concrete
-  new nuance.
-- If the pages first give an overview list and then later give a dedicated slide/subtopic for one
-  item from that list, name the item briefly in the overview and reserve the actual explanation
-  for the dedicated treatment. Do not explain it fully in both places.
-- Do not add importance, relevance, or real-world commentary unless the source supports it or it
-  is necessary to understand the concept.
-- Do not write vague synthesis such as "this approximates real systems" unless it is tied to
-  concrete details from the provided pages.
-
-Content rules:
-- Cover every distinct concept, claim, definition, formula, example, caveat, and reasoning step
-  present on the pages exactly once. Compress redundant phrasing, but do not omit distinct content.
-- Do not invent content not present on the pages.
-- Do not add introductions, conclusions, or meta-commentary.
-- Do not add a final synthesis paragraph by default. Add one only when it connects multiple
-  concrete ideas in a way that is not already clear from the preceding prose, and never use it
-  to recap each paragraph individually.
-- When explaining tables or score reports, do not transcribe every row or field by default.
-  Explain the table's structure, the meaning of its columns, notable patterns, and at most a few
-  representative values unless the source explicitly works through every row. Prefer grouped
-  comparisons over row-by-row narration.
 %s
+
+Your goal is to produce concise study notes that make the important concepts immediately
+recognizable. Explain the central ideas well enough to study from, while giving secondary
+material proportionately less space. Do not turn the section into a textbook chapter or a
+page-by-page transcription.
+
+Prioritization and length:
+- Before writing, distinguish core concepts from supporting details using the section's learning
+  objectives, emphasis, and dependencies: a concept is core when it explains the main topic or is
+  needed to understand or apply other central ideas. Do not infer importance from page count alone.
+- Spend most of the explanation on those core concepts: what they mean, how they work, and the
+  essential why or when. Keep conditions, assumptions, and caveats that affect correctness next
+  to the concept they qualify; never demote them just to shorten the notes.
+- Compress secondary facts, historical context, implementation variants, and illustrative numbers.
+  Omit incidental details and repetitive examples that do not change understanding or application.
+  Do not give every named term its own explanation or equal visual weight.
+- Aim for roughly 300-600 words for a typical 7-15 page section. This is a guide, not a quota:
+  write much less for sparse or repetitive pages, and exceed it only when distinct core concepts
+  or a necessary derivation require it. Do not pad short sections or cut essential reasoning.
+- Explain each idea once. If an overview is followed by a dedicated treatment, reserve the
+  explanation for that treatment. Do not add a recap that repeats the body.
+
+Structure and emphasis:
+- Start directly with the main concept or relationship, not a generic introduction or a separate
+  summary that will be repeated below.
+- Use short, connected paragraphs for explanations. Use '###' headings for the main subtopics
+  only; do not create a heading for every term or example.
+- Bold the few central terms or short essential relationships that a reader should notice on a
+  quick scan. Usually highlight each once. Do not bold every new technical term, secondary fact,
+  whole paragraph, or label prefix. Use ordinary Markdown **term**, without math delimiters.
+- Put useful secondary material that would interrupt the main explanation under a single optional
+  '#### Supporting details' heading at the end of the section, using a few short bullets. Omit
+  this subsection when unnecessary; it is not a place to dump every omitted source detail.
+  Translate this heading into the output language. Do not repeat the core explanation there.
+- Use short lists or compact tables when they make parallel properties, comparisons, or algorithm
+  steps easier to scan. Use prose to explain relationships, rather than making everything a list.
+
+Formulas, examples, and visuals:
+- Include formulas needed to understand or apply the core concepts. Reproduce retained formulas
+  accurately in LaTeX ($...$ inline or $$...$$ display), define their symbols on first use, and
+  state relevant assumptions. Omit duplicate rearrangements and incidental formulas.
+- Include a worked example only when it clarifies a core idea or teaches a necessary procedure.
+  Prefer one representative example per method, retaining the key steps and result. Show all
+  intermediate steps only when those steps are themselves the point of the lesson; omit routine
+  arithmetic and repeated worked cases. Keep distinct cases when they reveal a meaningful limit
+  or contrast, but describe the difference briefly.
+- For tables or score reports, explain the meaningful comparison or pattern and use only the
+  representative values needed to support it. Do not narrate every row or column.
+- Integrate important diagrams into the relevant explanation. Describe the relationship the
+  reader needs to understand, without duplicating every visible label or adding a separate recap.
+
+Accuracy and voice:
+- Preserve all core concepts and the reasoning needed to connect them. Shorten by selecting and
+  compressing supporting material, not by making the main explanation vague or cryptic.
+- Do not invent content, unsupported claims of importance, or likely exam questions.
+- Write in a direct explanatory voice. Do not refer to slides, pages, figures, or the document
+  as an external source unless required to understand the content. Avoid "the slide says",
+  "the figure illustrates", and similar source-reporting phrasing.
+- Every sentence must define, explain, connect, or qualify a specific idea. Once it is clear,
+  stop; avoid generic transitions, broad relevance claims, conclusions, and meta-commentary.
+- Do not re-teach material listed in earlier-section context. Briefly connect to it only when
+  needed, then focus on the new concept, mechanism, contrast, or exception. A new incidental
+  fact does not need inclusion merely because it was absent from earlier sections.
 
 %s
 %s
@@ -321,9 +365,9 @@ func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) s
 	fmt.Fprintf(&b, "# %s\n\n", docTitle)
 	for _, s := range sections {
 		if s.StartPage == s.EndPage {
-			fmt.Fprintf(&b, "## %s (page %d)\n\n", s.Title, s.StartPage)
+			fmt.Fprintf(&b, "## %s (%d)\n\n", s.Title, s.StartPage)
 		} else {
-			fmt.Fprintf(&b, "## %s (pages %d-%d)\n\n", s.Title, s.StartPage, s.EndPage)
+			fmt.Fprintf(&b, "## %s (%d–%d)\n\n", s.Title, s.StartPage, s.EndPage)
 		}
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(s.Explanation))
 	}
@@ -373,7 +417,7 @@ func priorSectionContextLine(section SectionWithExplanation) string {
 		parts = append(parts, "subtopics: "+strings.Join(headings, ", "))
 	}
 	if terms := boldTerms(section.Explanation); len(terms) > 0 {
-		parts = append(parts, "introduced terms: "+strings.Join(terms, ", "))
+		parts = append(parts, "emphasized concepts: "+strings.Join(terms, ", "))
 	}
 
 	pageLabel := fmt.Sprintf("pages %d-%d", section.StartPage, section.EndPage)
