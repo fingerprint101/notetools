@@ -192,12 +192,15 @@ func ValidateSections(sections []Section, pageCount int) error {
 	return nil
 }
 
-func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber int, includeImages bool, targetLanguage, priorContext string) (SectionExplanation, error) {
+func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths []string, title string, startPage, endPage, sectionNumber, detailLevel int, includeImages bool, targetLanguage, priorContext string) (SectionExplanation, error) {
+	if err := ValidateExplainDetail(detailLevel); err != nil {
+		return SectionExplanation{}, fmt.Errorf("explain section %q: %w", title, err)
+	}
 	targetLanguage = strings.TrimSpace(targetLanguage)
 	if targetLanguage == "" || strings.EqualFold(targetLanguage, "auto") {
 		return SectionExplanation{}, fmt.Errorf("explain section %q: output language must be resolved first", title)
 	}
-	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, includeImages, targetLanguage, priorContext)
+	prompt := buildExplainPrompt(title, startPage, endPage, len(pagePaths), sectionNumber, detailLevel, includeImages, targetLanguage, priorContext)
 
 	raw, err := p.GenerateJSONWithImages(ctx, model, prompt, pagePaths, sectionExplanationSchema)
 	if err != nil {
@@ -221,7 +224,55 @@ func ExplainSection(ctx context.Context, p llm.Provider, model string, pagePaths
 	return exp, nil
 }
 
-func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber int, includeImages bool, targetLanguage, priorContext string) string {
+// ValidateExplainDetail checks the supported explanation detail levels.
+func ValidateExplainDetail(level int) error {
+	if level < 1 || level > 3 {
+		return fmt.Errorf("detail level must be 1, 2, or 3 (got %d)", level)
+	}
+	return nil
+}
+
+func explainDetailRules(level int) (string, string) {
+	if level == 1 {
+		return `Your goal is to produce concise study notes that make the important concepts immediately
+recognizable. Explain the central ideas well enough to study from, while giving secondary
+material proportionately less space. Do not turn the section into a textbook chapter or a
+page-by-page transcription.`, `- Aim for roughly 300-600 words for a typical 7-15 page section. This is a guide, not a quota:
+  write much less for sparse or repetitive pages, and exceed it only when distinct core concepts
+  or a necessary derivation require it. Do not pad short sections or cut essential reasoning.`
+	}
+
+	goal := `Your goal is to produce study notes that explain the selected concepts and their reasoning
+in depth. Select content using the prioritization, formula, example, and visual rules below.
+Keep the focus on central ideas, with proportionately less space for secondary material.
+Unpack the meaning and reasoning of the selected ideas in clear prose. Include topics,
+supporting facts, examples, derivations, and edge cases only when warranted by the selection
+rules; do not add material merely to make the explanation longer.
+Do not transcribe page by page, repeat yourself, or invent unsupported explanations.`
+	depth := `Explanation depth:
+- Describe each selected concept in developed paragraphs: clarify what it means, how it
+  works, and why it works. Explain the reasoning behind the main steps.
+- Make the logical connections between the selected ideas explicit. For formulas, examples,
+  and qualifications already warranted by the selection rules, explain their meaning and
+  reasoning clearly.`
+	wordRange := "600-1000"
+	if level == 3 {
+		depth = `Explanation depth:
+- Explain each selected concept thoroughly through connected paragraphs. Carefully unpack
+  its meaning and explain how and why it works, spelling out the intermediate reasoning
+  step by step and explaining why each step follows from the preceding one.
+- Walk the reader through the connections between the selected ideas so each logical step
+  is understandable. For formulas, examples, and qualifications already warranted by the
+  selection rules, thoroughly explain their meaning and reasoning.`
+		wordRange = "1000-1600"
+	}
+	lengthRule := fmt.Sprintf(`- Aim for roughly %s words for a typical 7-15 page section. This is a guide, not a quota:
+  write much less for sparse or repetitive pages, and exceed it only when explaining the
+  selected material requires it. Never broaden coverage, repeat ideas, or pad to meet a length.`, wordRange)
+	return goal + "\n\n" + depth, lengthRule
+}
+
+func buildExplainPrompt(title string, startPage, endPage, pageCount, sectionNumber, detailLevel int, includeImages bool, targetLanguage, priorContext string) string {
 	var imageIndexGuide strings.Builder
 	for i := 1; i <= pageCount; i++ {
 		if i > 1 {
@@ -287,15 +338,13 @@ Preserve new core concepts and essential qualifications even when they use a pre
 introduced term; apply the same prioritization rules to new supporting details.`, priorContext)
 	}
 
+	goal, lengthRule := explainDetailRules(detailLevel)
 	return fmt.Sprintf(`You are preparing study notes from a section titled "%s" (pages %d-%d) of a document.
 The section spans %d page(s), provided as images in order.
 
 %s
 
-Your goal is to produce concise study notes that make the important concepts immediately
-recognizable. Explain the central ideas well enough to study from, while giving secondary
-material proportionately less space. Do not turn the section into a textbook chapter or a
-page-by-page transcription.
+%s
 
 Prioritization and length:
 - Before writing, distinguish core concepts from supporting details using the section's learning
@@ -307,9 +356,7 @@ Prioritization and length:
 - Compress secondary facts, historical context, implementation variants, and illustrative numbers.
   Omit incidental details and repetitive examples that do not change understanding or application.
   Do not give every named term its own explanation or equal visual weight.
-- Aim for roughly 300-600 words for a typical 7-15 page section. This is a guide, not a quota:
-  write much less for sparse or repetitive pages, and exceed it only when distinct core concepts
-  or a necessary derivation require it. Do not pad short sections or cut essential reasoning.
+%s
 - Explain each idea once. If an overview is followed by a dedicated treatment, reserve the
   explanation for that treatment. Do not add a recap that repeats the body.
 
@@ -357,7 +404,7 @@ Accuracy and voice:
 
 %s
 %s
-- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, languageRule, priorContextRule, imageRules)
+- Output only valid JSON matching the schema.`, title, startPage, endPage, pageCount, languageRule, goal, lengthRule, priorContextRule, imageRules)
 }
 
 func RenderExplainMarkdown(docTitle string, sections []SectionWithExplanation) string {

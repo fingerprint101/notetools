@@ -14,15 +14,21 @@ var (
 	explainOutput   string
 	explainLanguage string
 	explainNoImg    bool
+	explainDetail   int
 )
 
 var explainCmd = &cobra.Command{
 	Use:     "explain <pdf>",
 	Aliases: []string{"e"},
-	Short:   "Turn a PDF into concise study notes with clear priorities",
+	Short:   "Turn a PDF into study notes with adjustable detail",
 	Long: `Takes a PDF document, identifies coherent thematic sections by page range,
-then explains the core concepts with selective emphasis and brief supporting
-details. Outputs a single Markdown file organized by section.`,
+then explains the concepts at the selected level of detail. Outputs a single
+Markdown file organized by section.
+
+Detail levels (--detail / -d):
+  1  Concise study notes with core concepts and brief supporting details (default).
+  2  The same material explained in greater depth.
+  3  The same material explained with the fullest depth and reasoning.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runExplain,
 }
@@ -31,10 +37,14 @@ func init() {
 	explainCmd.Flags().StringVarP(&explainOutput, "output", "o", "", "output file path (default: {stem}.md)")
 	explainCmd.Flags().StringVarP(&explainLanguage, "language", "l", "auto", "output language for all notes and titles (e.g. Italian, English; auto detects once per document)")
 	explainCmd.Flags().BoolVar(&explainNoImg, "noimg", false, "skip cropped images in the output Markdown")
+	explainCmd.Flags().IntVarP(&explainDetail, "detail", "d", 1, "explanation detail: 1 concise, 2 detailed, 3 thorough")
 	rootCmd.AddCommand(explainCmd)
 }
 
 func runExplain(cmd *cobra.Command, args []string) error {
+	if err := docs.ValidateExplainDetail(explainDetail); err != nil {
+		return err
+	}
 	pdfPath := args[0]
 	if _, err := os.Stat(pdfPath); err != nil {
 		return fmt.Errorf("file not found: %s", pdfPath)
@@ -96,7 +106,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 
 		fmt.Fprintf(os.Stderr, "    Explaining %d page(s)...\n", len(sectionPages))
 		priorContext := docs.BuildPriorSectionContext(explained, 3500)
-		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, !explainNoImg, targetLanguage, priorContext)
+		exp, err := docs.ExplainSection(cmd.Context(), p, model, sectionPages, s.Title, s.StartPage, s.EndPage, i+1, explainDetail, !explainNoImg, targetLanguage, priorContext)
 		if err != nil {
 			return err
 		}

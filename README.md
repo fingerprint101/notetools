@@ -2,7 +2,7 @@
 
 AI CLI for document explanation, transcript cleaning, note merging, and coverage checks. Routes requests through your choice of LLM CLI: [opencode](https://opencode.ai), [Claude Code](https://claude.ai/code), or [Codex](https://github.com/openai/codex).
 
-- **`nt explain`** (`e`) — Turn a PDF into concise study notes with clear priorities
+- **`nt explain`** (`e`) — Turn a PDF into study notes with adjustable detail
 - **`nt preview`** (`p`) — Preview a file with line numbers (for selecting merge ranges)
 - **`nt merge`** (`m`) — Merge two Markdown notes, or selected snippets from them
 - **`nt check`** (`ck`) — Check whether a target contains all information from source files
@@ -54,14 +54,26 @@ For `claude` and `codex`, local file or image context is passed by path in the p
 nt explain lecture.pdf      # or: nt e lecture.pdf
 nt explain lecture.pdf --language Italian
 nt explain lecture.pdf -l English
+nt explain lecture.pdf --detail 2
+nt explain lecture.pdf -d 3
 # => lecture.md
 ```
 
-Explains the core concepts in short paragraphs, with selective bold emphasis and
+By default (detail level 1), explains the core concepts in short paragraphs, with selective bold emphasis and
 optional supporting details separated from the main explanation. Keeps essential
 formulas and reasoning, while compressing incidental facts and repetitive examples.
 Length adapts to the material, aiming for roughly 300–600 words per typical
 7–15 page section.
+
+Use `--detail` (or `-d`) to choose how deeply the same material is explained:
+
+- **1** (default): the original concise explanation, roughly 300–600 words per section.
+- **2**: fuller explanations of the same concepts and reasoning, roughly 600–1000 words.
+- **3**: the most in-depth explanation of the same material, roughly 1000–1600 words.
+
+Higher levels unpack meaning and logical connections rather than adding topics,
+examples, derivations, or other types of content. Word ranges are flexible guidance
+for typical 7–15 page sections, not quotas. Only levels 1–3 are accepted.
 
 Use `--language` (or `-l`) to choose the output language for the entire run,
 including document and section titles, explanations, and image descriptions.
